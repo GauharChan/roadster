@@ -126,6 +126,41 @@ describe('赛道离开画面才提示', () => {
     expect(fitted.y).toBeCloseTo(92, 5)
   })
 
+  it('贴底前就会压住说明时，第一帧就放到说明右侧', () => {
+    const viewport = { width: 1280, height: 720 }
+    const help = { left: 14, top: 639.828125, right: 172.671875, bottom: 706 }
+    const size = { width: 88, height: 20 }
+    const area = (box: { left: number; right: number; top: number; bottom: number }) => {
+      const w = Math.min(box.right, help.right) - Math.max(box.left, help.left)
+      const h = Math.min(box.bottom, help.bottom) - Math.max(box.top, help.top)
+      return w > 0 && h > 0 ? w * h : 0
+    }
+    const boxOf = (hint: { x: number; y: number }) => {
+      const cx = hint.x / 100 * viewport.width
+      const cy = hint.y / 100 * viewport.height
+      return { left: cx - size.width / 2, right: cx + size.width / 2, top: cy - size.height / 2, bottom: cy + size.height / 2 }
+    }
+    const samples = [
+      { x: 8, y: 86.43689986866855, angle: -130.94 },
+      { x: 8, y: 88, angle: -132.5 },
+      { x: 8, y: 92, angle: -132.8 },
+      { x: 8, y: 89, angle: -133.1 },
+      { x: 7.999999999999993, y: 84.98211689903641, angle: -129.79 },
+      { x: 8, y: 81.45342711317, angle: -126.83 },
+    ]
+    const fitted = samples.map((raw) => fitCourseHint(raw, viewport, { help }, size))
+    fitted.forEach((hint) => {
+      expect(area(boxOf(hint))).toBe(0)
+    })
+    expect(fitted[0]?.x).toBeCloseTo(8, 1)
+    expect(fitted[0]?.y).toBeCloseTo(86.4369, 2)
+    expect(fitted[1]?.y).toBeCloseTo(92, 5)
+    expect(fitted[1]?.x).toBeCloseTo(53.2137, 2)
+    expect(fitted[2]?.x).toBeCloseTo(fitted[1]?.x ?? 0, 5)
+    expect(fitted[4]?.x).toBeCloseTo(8, 1)
+    expect(fitted[4]?.y).toBeCloseTo(84.9821, 2)
+  })
+
   it('贴在右缘且不压说明时，不改到别的位置', () => {
     const raw = { x: 92, y: 48, angle: 90 }
     const fitted = fitCourseHint(

@@ -215,14 +215,57 @@ function hintBox(hint: CourseHint, viewport: { width: number; height: number }, 
   }
 }
 
+type HudZones = { help?: PxRect | null; title?: PxRect | null; reset?: PxRect | null }
+
+function reservedZones(zones: HudZones): PxRect[] {
+  return [zones.help, zones.title, zones.reset].filter((zone): zone is PxRect => !!zone && zone.right > zone.left)
+}
+
+function overlapsReserved(
+  hint: CourseHint,
+  viewport: { width: number; height: number },
+  zones: HudZones,
+  size: HintBox,
+): boolean {
+  const box = hintBox(hint, viewport, size)
+  return reservedZones(zones).some((zone) => intersects(box, zone))
+}
+
+function onSideEdge(hint: CourseHint): boolean {
+  return hint.x <= 50 - EDGE * 50 + 1.5 || hint.x >= 50 + EDGE * 50 - 1.5
+}
+
+/**
+ * 左右贴边一旦压到说明，就不能再往下挤。
+ * 那一帧直接改放底边空档，避免先停在左下角。
+ */
+function shouldSitOnBottom(
+  hint: CourseHint,
+  viewport: { width: number; height: number },
+  zones: HudZones,
+  size: HintBox,
+): boolean {
+  if (hint.y >= BOTTOM_EDGE_Y - 1.5) return true
+  return hint.y >= 50 && onSideEdge(hint) && overlapsReserved(hint, viewport, zones, size)
+}
+
 /** 赛道在下方时，沿底边放到说明右侧空档的中点，并避开标题和重置。 */
 export function fitCourseHint(
   hint: CourseHint,
   viewport: { width: number; height: number },
-  zones: { help?: PxRect | null; title?: PxRect | null; reset?: PxRect | null },
+  zones: HudZones,
   size: HintBox = { width: 88, height: 20 },
 ): CourseHint {
-  if (hint.y < BOTTOM_EDGE_Y - 1.5) return slideIfCovering(hint, viewport, zones, size)
+  if (shouldSitOnBottom(hint, viewport, zones, size)) return placeOnBottom(hint, viewport, zones, size)
+  return slideIfCovering(hint, viewport, zones, size)
+}
+
+function placeOnBottom(
+  hint: CourseHint,
+  viewport: { width: number; height: number },
+  zones: HudZones,
+  size: HintBox,
+): CourseHint {
   const rightInset = viewport.width * (1 - EDGE) / 2
   let leftLimit = zones.help && zones.help.right > zones.help.left
     ? zones.help.right + HINT_GAP + size.width / 2
@@ -243,21 +286,29 @@ export function fitCourseHint(
 function slideIfCovering(
   hint: CourseHint,
   viewport: { width: number; height: number },
-  zones: { help?: PxRect | null; title?: PxRect | null; reset?: PxRect | null },
+  zones: HudZones,
   size: HintBox,
 ): CourseHint {
-  const zonesList = [zones.help, zones.title, zones.reset].filter((zone): zone is PxRect => !!zone && zone.right > zone.left)
+  const zonesList = reservedZones(zones)
   let next = hint
   const onRight = hint.x >= 50 + EDGE * 50 - 1.5
   const onLeft = hint.x <= 50 - EDGE * 50 + 1.5
   const onTop = hint.y <= 50 - EDGE * 50 + 1.5
   for (let step = 0; step < 12; step += 1) {
     const box = hintBox(next, viewport, size)
-    if (!zonesList.some((zone) => intersects(box, zone))) return next
+    const hit = zonesList.find((zone) => intersects(box, zone))
+    if (!hit) return next
     if (onTop) next = { ...next, x: Math.min(50 + EDGE * 50, next.x + 4) }
-    else if (onRight) next = { ...next, y: Math.min(BOTTOM_EDGE_Y, next.y + 4) }
-    else if (onLeft) next = { ...next, y: Math.min(BOTTOM_EDGE_Y, next.y + 4) }
-    else return next
+    else if (onLeft || onRight) {
+      const hintCy = (box.top + box.bottom) / 2
+      const zoneCy = (hit.top + hit.bottom) / 2
+      next = hintCy >= zoneCy
+        ? { ...next, y: Math.min(BOTTOM_EDGE_Y, next.y + 4) }
+        : { ...next, y: Math.max(50 - EDGE * 50, next.y - 4) }
+    } else return placeOnBottom(next, viewport, zones, size)
+  }
+  if (next.y >= 50 && overlapsReserved(next, viewport, zones, size)) {
+    return placeOnBottom(next, viewport, zones, size)
   }
   return next
 }
