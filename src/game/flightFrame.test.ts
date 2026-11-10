@@ -7,6 +7,7 @@ import {
   courseMarkers,
   frameFlightCamera,
   courseHintLayout,
+  fitCourseHint,
   isCourseInView,
   isPointInView,
   type FlightFrame,
@@ -81,5 +82,41 @@ describe('赛道离开画面才提示', () => {
     expect(Math.hypot((hint?.x ?? 50) - 50, (hint?.y ?? 50) - 50)).toBeGreaterThan(30)
     expect(hint?.angle ?? 0).toBeGreaterThan(45)
     expect(hint?.angle ?? 180).toBeLessThan(150)
+  })
+
+  it('赛道在下方时，箭头沿底边放到说明右侧空档的中点', () => {
+    const viewport = { width: 1000, height: 600 }
+    const help = { left: 14, top: 500, right: 280, bottom: 586 }
+    const title = { left: 18, top: 18, right: 260, bottom: 220 }
+    const reset = { left: 900, top: 16, right: 972, bottom: 52 }
+    const raw = { x: 50, y: 92, angle: 180 }
+    const fitted = fitCourseHint(raw, viewport, { help, title, reset }, { width: 88, height: 20 })
+    const center = fitted.x / 100 * viewport.width
+    const leftLimit = help.right + 12 + 44
+    const rightLimit = viewport.width - viewport.width * 0.08 - 44
+    expect(fitted.y).toBeCloseTo(92, 5)
+    expect(fitted.angle).toBe(180)
+    expect(center).toBeCloseTo((leftLimit + rightLimit) / 2, 3)
+    const box = {
+      left: center - 44,
+      right: center + 44,
+      top: (fitted.y / 100) * viewport.height - 10,
+      bottom: (fitted.y / 100) * viewport.height + 10,
+    }
+    expect(box.left).toBeGreaterThan(help.right)
+    expect(box.right).toBeLessThan(viewport.width)
+    expect(box.bottom).toBeLessThanOrEqual(viewport.height)
+    expect(box.left < title.right && box.right > title.left && box.top < title.bottom).toBe(false)
+    expect(box.left < reset.right && box.right > reset.left && box.top < reset.bottom).toBe(false)
+  })
+
+  it('贴在右缘且不压说明时，不改到别的位置', () => {
+    const raw = { x: 92, y: 48, angle: 90 }
+    const fitted = fitCourseHint(
+      raw,
+      { width: 1280, height: 720 },
+      { help: { left: 14, top: 640, right: 240, bottom: 706 } },
+    )
+    expect(fitted).toEqual(raw)
   })
 })

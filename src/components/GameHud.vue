@@ -13,7 +13,7 @@ const modeLabel = computed(() => {
 
 const objective = computed(() => {
   if (game.hud.stuntDone) return '这一轮完成'
-  if (game.hud.mode === 'air') return '按住推进稳住，放平后落地'
+  if (game.hud.mode === 'air') return '空格喷气，W/S 调整俯仰，A/D 调整横滚；松开空格停止喷气，但车辆仍有惯性'
   if (game.hud.mode === 'ramp') return '继续往上，冲出坡唇'
   return '加速对准坡道口'
 })

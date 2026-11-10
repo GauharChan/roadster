@@ -15,7 +15,7 @@ import { createCar, loadRoadster, type CarRig } from '../game/createCar'
 import { createStage } from '../game/createScene'
 import { type GameController, type GameHudState } from '../game/context'
 import { frameFlightCamera } from '../game/flightFrame'
-import { courseHintLayout } from '../game/flightFrame'
+import { courseHintLayout, fitCourseHint, type PxRect } from '../game/flightFrame'
 import { idleNotice, climbLabel, showMoment, tickMoment, type MomentNotice } from '../game/hudCue'
 import { createThrusters, type ThrusterEmit } from '../game/thrusters'
 import { createVehicle, resetVehicle, stepVehicle, type VehicleState } from '../game/vehicle'
@@ -265,13 +265,16 @@ function mountGame(
     blob.scale.setScalar(shadowScale)
     updateCamera(camera, state, heading, desired, look, lookTarget, scratch, dt, snapCamera)
     snapCamera = false
-    const courseHint = courseHintLayout(
+    const placed = courseHintLayout(
       camera.position,
       look,
       undefined,
       camera.fov,
       camera.aspect,
     )
+    const courseHint = placed
+      ? fitCourseHint(placed, { width: window.innerWidth, height: window.innerHeight }, readHudZones())
+      : null
     hud.courseHint = courseHint
     window.__roadsterHint = courseHint !== null
     window.__roadsterUpY = camera.up.y
@@ -316,6 +319,21 @@ function mountGame(
     disposeScene(scene)
     renderer.dispose()
     renderer.domElement.remove()
+  }
+}
+
+function readHudZones(): { help: PxRect | null; title: PxRect | null; reset: PxRect | null } {
+  const read = (selector: string): PxRect | null => {
+    const element = document.querySelector(selector)
+    if (!(element instanceof HTMLElement)) return null
+    const rect = element.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return null
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+  }
+  return {
+    help: read('.hint'),
+    title: read('.title-block'),
+    reset: read('button.reset'),
   }
 }
 
