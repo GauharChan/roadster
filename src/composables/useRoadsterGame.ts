@@ -14,6 +14,9 @@ import {
 import { createCar, loadRoadster, type CarRig } from '../game/createCar'
 import { createStage } from '../game/createScene'
 import { type GameController, type GameHudState } from '../game/context'
+import { frameFlightCamera } from '../game/flightFrame'
+import { createFlightGuides } from '../game/flightGuides'
+import { idleNotice, formatClimb, showMoment, tickMoment, type MomentNotice } from '../game/hudCue'
 import { createThrusters, type ThrusterEmit } from '../game/thrusters'
 import { createVehicle, resetVehicle, stepVehicle, type VehicleState } from '../game/vehicle'
 import { useInput } from './useInput'
@@ -24,8 +27,11 @@ export function useRoadsterGame(
   const hud = reactive<GameHudState>({
     speedKmh: 0,
     altitude: 0,
+    climb: '0',
     mode: 'ground',
     stuntDone: false,
+    notice: '',
+    noticeKind: 'none',
   })
   const input = useInput()
   let stop = () => {}
@@ -85,6 +91,8 @@ function mountGame(
 
   const thrusters = createThrusters()
   scene.add(thrusters.root)
+  const guides = createFlightGuides()
+  scene.add(guides.root)
 
   const blobMaterial = new MeshBasicMaterial({
     color: '#000000',
@@ -113,6 +121,8 @@ function mountGame(
   const look = new Vector3(state.x, 1.2, state.z)
   const lookTarget = new Vector3()
   const scratch = new Vector3()
+  let notice: MomentNotice = idleNotice()
+  let snapCamera = false
   const nozzle = new Vector3()
   const up = new Vector3()
   const side = new Vector3()
@@ -149,9 +159,14 @@ function mountGame(
     if (command.reset) {
       resetVehicle(state)
       heading.set(0, 0, -1)
+      notice = showMoment('reset')
+      snapCamera = true
     } else {
       stepVehicle(state, command, dt)
+      if (state.event === 'land') notice = showMoment('land')
+      else if (state.event === 'recover') notice = showMoment('recover')
     }
+    notice = tickMoment(notice, dt)
 
     if (car) {
       car.root.position.set(state.x, state.y, state.z)
@@ -213,8 +228,15 @@ function mountGame(
     blob.visible = shadow > 0.03
     const shadowScale = 1 + Math.min(state.y, 10) * 0.12
     blob.scale.setScalar(shadowScale)
-    updateCamera(camera, state, heading, desired, look, lookTarget, scratch, dt)
-    publishHud(hud, state)
+    updateCamera(camera, state, heading, desired, look, lookTarget, scratch, dt, snapCamera)
+    snapCamera = false
+    guides.update(
+      camera.position,
+      look,
+      { x: state.x, z: state.z },
+      state.mode === 'air',
+    )
+    publishHud(hud, state, notice)
     renderer.render(scene, camera)
     requestAnimationFrame(frame)
   }
@@ -228,6 +250,8 @@ function mountGame(
     observer.disconnect()
     thrusters.root.removeFromParent()
     thrusters.dispose()
+    guides.root.removeFromParent()
+    guides.dispose()
     disposeScene(scene)
     renderer.dispose()
     renderer.domElement.remove()
@@ -243,36 +267,53 @@ function updateCamera(
   lookTarget: Vector3,
   scratch: Vector3,
   dt: number,
+  snap: boolean,
 ): void {
   const planar = Math.hypot(state.vx, state.vz)
   if (planar > 6) {
     scratch.set(state.vx / planar, 0, state.vz / planar)
     heading.lerp(scratch, 1 - Math.exp(-2.4 * dt)).normalize()
   }
-  const distance = 12 + Math.min(state.y, 42) * 0.28
-  const side = 3.4
-  desired.set(
-    state.x - heading.x * distance - heading.z * side,
-    Math.max(1.8, state.y * 0.38 + 3.5 + Math.min(state.y, 36) * 0.12),
-    state.z - heading.z * distance + heading.x * side,
-  )
-  lookTarget.set(state.x, state.y + 1.15, state.z)
-  const blend = 1 - Math.exp(-3.4 * dt)
+  if (state.mode === 'air') {
+    const frame = frameFlightCamera({
+      x: state.x,
+      y: state.y,
+      z: state.z,
+      headingX: heading.x,
+      headingZ: heading.z,
+    })
+    desired.set(frame.cameraX, frame.cameraY, frame.cameraZ)
+    lookTarget.set(frame.lookX, frame.lookY, frame.lookZ)
+  } else {
+    const distance = 12 + Math.min(state.y, 42) * 0.28
+    const side = 3.4
+    desired.set(
+      state.x - heading.x * distance - heading.z * side,
+      Math.max(1.8, state.y * 0.38 + 3.5 + Math.min(state.y, 36) * 0.12),
+      state.z - heading.z * distance + heading.x * side,
+    )
+    lookTarget.set(state.x, state.y + 1.15, state.z)
+  }
+  const blend = snap ? 1 : 1 - Math.exp(-3.4 * dt)
   camera.position.lerp(desired, blend)
   look.lerp(lookTarget, blend)
   camera.lookAt(look)
 }
 
-function publishHud(hud: GameHudState, state: VehicleState): void {
+function publishHud(hud: GameHudState, state: VehicleState, notice: MomentNotice): void {
   const metersPerSecond = state.mode === 'air'
     ? Math.hypot(state.vx, state.vy, state.vz)
     : Math.abs(state.speed)
   const speedKmh = Math.round(metersPerSecond * 3.6)
   const altitude = Math.max(0, Math.round(state.y))
+  const climb = formatClimb(state.vy)
   if (hud.speedKmh !== speedKmh) hud.speedKmh = speedKmh
   if (hud.altitude !== altitude) hud.altitude = altitude
+  if (hud.climb !== climb) hud.climb = climb
   if (hud.mode !== state.mode) hud.mode = state.mode
   if (hud.stuntDone !== state.stuntDone) hud.stuntDone = state.stuntDone
+  if (hud.notice !== notice.text) hud.notice = notice.text
+  if (hud.noticeKind !== notice.kind) hud.noticeKind = notice.kind
 }
 
 function disposeScene(scene: { traverse: (callback: (object: object) => void) => void }): void {

@@ -24,6 +24,7 @@ import {
   PointsMaterial,
   Object3D,
 } from 'three'
+import { VIEW_FOV_DEG } from './flightFrame'
 import { RAMP, sampleRamp } from './ramp'
 
 export interface Stage {
@@ -38,7 +39,7 @@ export function createStage(): Stage {
   scene.background = new Color('#07080c')
   scene.fog = new FogExp2('#07080c', 0.0085)
 
-  const camera = new PerspectiveCamera(48, 1, 0.1, 500)
+  const camera = new PerspectiveCamera(VIEW_FOV_DEG, 1, 0.1, 500)
   camera.position.set(8, 7, 64)
 
   scene.add(createGround())

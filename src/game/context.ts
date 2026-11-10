@@ -1,11 +1,15 @@
 import type { InjectionKey } from 'vue'
+import type { NoticeKind } from './hudCue'
 import type { DriveMode } from './vehicle'
 
 export interface GameHudState {
   speedKmh: number
   altitude: number
+  climb: string
   mode: DriveMode
   stuntDone: boolean
+  notice: string
+  noticeKind: NoticeKind
 }
 
 export interface GameController {

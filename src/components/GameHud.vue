@@ -41,22 +41,29 @@ const objective = computed(() => {
           <span class="unit">km/h</span>
         </p>
         <p class="metric">
-          <span class="value">{{ game.hud.altitude }}</span>
+          <span class="value" data-altitude>{{ game.hud.altitude }}</span>
           <span class="unit">m</span>
         </p>
         <p class="mode" :class="{ flying: game.hud.mode === 'air' }">{{ modeLabel }}</p>
       </div>
+      <p
+        class="trend"
+        data-climb
+        :class="{ up: game.hud.climb.startsWith('+'), down: game.hud.climb.startsWith('-') }"
+      >{{ game.hud.climb }} m/s</p>
+      <p class="notice" role="status" aria-live="polite" :data-kind="game.hud.noticeKind">{{ game.hud.notice }}</p>
       <button
         v-if="game.hud.stuntDone"
         type="button"
         class="again"
+        data-action="reset"
         @click="game.requestReset()"
       >
         再来一次
       </button>
     </div>
 
-    <button type="button" class="reset" @click="game.requestReset()">重置</button>
+    <button type="button" class="reset" data-action="reset" @click="game.requestReset()">重置</button>
     <p class="hint">W/S 油门，空中改为俯仰<br>A/D 转向，空中改为横滚<br>空格推进 · F 翻转 · R 重置</p>
   </header>
 </template>
@@ -115,6 +122,30 @@ const objective = computed(() => {
 
 .objective {
   color: #e7e1d6;
+}
+
+.notice {
+  min-height: 1.4em;
+  margin: 8px 0 0;
+  color: #e7e1d6;
+  font-size: 18px;
+  letter-spacing: 0.12em;
+}
+
+.notice[data-kind='recover'] {
+  color: #ff2d2a;
+}
+
+.trend {
+  margin: 8px 0 0;
+  font-family: "IBM Plex Mono", "PingFang SC", ui-monospace, monospace;
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.trend.down {
+  color: #9eb6d6;
 }
 
 .again,
