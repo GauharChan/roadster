@@ -1,0 +1,16 @@
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  background: #07080c;
+  overflow: hidden;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  overscroll-behavior: none;
+}
