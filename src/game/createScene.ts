@@ -13,6 +13,7 @@ import {
   Scene,
   SRGBColorSpace,
   Vector3,
+  BackSide,
   BoxGeometry,
   CylinderGeometry,
   SphereGeometry,
@@ -36,13 +37,15 @@ const SEGMENTS = 56
 
 export function createStage(): Stage {
   const scene = new Scene()
-  scene.background = new Color('#07080c')
-  scene.fog = new FogExp2('#07080c', 0.0085)
+  scene.background = new Color('#10151c')
+  scene.fog = new FogExp2('#141a22', 0.0052)
 
   const camera = new PerspectiveCamera(VIEW_FOV_DEG, 1, 0.1, 500)
   camera.position.set(8, 7, 64)
 
+  scene.add(createSky())
   scene.add(createGround())
+  scene.add(createCourseRibbon())
   scene.add(createMarkings())
   scene.add(createRamp())
   scene.add(createLamps())
@@ -56,8 +59,8 @@ export function createStage(): Stage {
 function createGround(): Mesh {
   const geometry = new BoxGeometry(460, 1, 460)
   const material = new MeshStandardMaterial({
-    color: '#1a1d24',
-    map: grainTexture('#1a1d24', 18, 24, 24),
+    color: '#2a313b',
+    map: grainTexture('#2a313b', 16, 24, 24),
     roughness: 0.94,
     metalness: 0.04,
   })
@@ -333,9 +336,91 @@ function createStars(): Points {
   return new Points(geometry, material)
 }
 
+function createSky(): Mesh {
+  const canvas = document.createElement('canvas')
+  canvas.width = 8
+  canvas.height = 256
+  const context = canvas.getContext('2d')
+  const texture = new CanvasTexture(canvas)
+  texture.colorSpace = SRGBColorSpace
+  if (context) {
+    const paint = context.createLinearGradient(0, 0, 0, 256)
+    paint.addColorStop(0, '#07090d')
+    paint.addColorStop(0.34, '#121820')
+    paint.addColorStop(0.48, '#3a4658')
+    paint.addColorStop(0.58, '#1c2430')
+    paint.addColorStop(1, '#10141a')
+    context.fillStyle = paint
+    context.fillRect(0, 0, 8, 256)
+    texture.needsUpdate = true
+  }
+  const sky = new Mesh(
+    new SphereGeometry(420, 24, 16),
+    new MeshBasicMaterial({ map: texture, side: BackSide, fog: false, depthWrite: false, toneMapped: false }),
+  )
+  sky.name = 'sky-depth'
+  sky.frustumCulled = false
+  sky.renderOrder = -1
+  return sky
+}
+
+function createCourseRibbon(): Group {
+  const group = new Group()
+  group.name = 'course-ribbon'
+  const strip = new MeshBasicMaterial({ color: '#d7dde4', toneMapped: false })
+  const studMaterial = new MeshBasicMaterial({ color: '#e7ebf1', toneMapped: false })
+  const road = new Mesh(new BoxGeometry(0.22, 0.03, 92), strip)
+  road.position.set(0, 0.05, 38)
+  group.add(road)
+  group.add(new Mesh(rampRibbonGeometry(), strip))
+
+  const stud = new SphereGeometry(0.07, 8, 6)
+  Array.from({ length: 18 }, (_, index) => {
+    const lamp = new Mesh(stud, studMaterial)
+    lamp.position.set(0, 0.22, 86 - index * 5)
+    group.add(lamp)
+  })
+  Array.from({ length: 20 }, (_, index) => {
+    const sample = sampleRamp((RAMP.launchTheta * index) / 19, 0)
+    const lamp = new Mesh(stud, studMaterial)
+    lamp.position.set(
+      sample.x + sample.ux * 0.28,
+      sample.y + sample.uy * 0.28,
+      sample.z + sample.uz * 0.28,
+    )
+    group.add(lamp)
+  })
+  return group
+}
+
+function rampRibbonGeometry(): BufferGeometry {
+  const positions: number[] = []
+  const indices: number[] = []
+  const segments = 48
+  Array.from({ length: segments + 1 }, (_, index) => {
+    const theta = (RAMP.launchTheta * index) / segments
+    ;[sampleRamp(theta, -0.12), sampleRamp(theta, 0.12)].forEach((point) => {
+      positions.push(
+        point.x + point.ux * 0.07,
+        point.y + point.uy * 0.07,
+        point.z + point.uz * 0.07,
+      )
+    })
+  })
+  Array.from({ length: segments }, (_, index) => {
+    const a = index * 2
+    indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
+  })
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
 function addLights(scene: Scene): void {
-  scene.add(new AmbientLight('#b7c3d4', 0.22))
-  scene.add(new HemisphereLight('#8ea0b8', '#1a140f', 0.4))
+  scene.add(new AmbientLight('#c5d0dc', 0.48))
+  scene.add(new HemisphereLight('#9aabbe', '#2a3038', 0.72))
   const moon = new DirectionalLight('#d5e2f5', 1.35)
   moon.position.set(40, 70, 24)
   scene.add(moon)

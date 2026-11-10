@@ -14,13 +14,13 @@ const COPY: Record<Exclude<NoticeKind, 'none'>, string> = {
   reset: '已手动重置',
 }
 
-/** 与世界竖直速度同号。死区内不标上升或下降，避免贴地抖动。 */
+/** 并进高度读数的短趋势。死区内留空，避免再占一行。符号与竖直速度一致。 */
 export function formatClimb(vy: number): string {
-  if (!Number.isFinite(vy) || Math.abs(vy) < 0.5) return '0'
+  if (!Number.isFinite(vy) || Math.abs(vy) < 0.5) return ''
   const signed = Math.round(vy)
   const shown = signed === 0 ? (vy > 0 ? 1 : -1) : signed
-  if (shown > 0) return `+${shown} 上升`
-  return `${shown} 下降`
+  if (shown > 0) return `+${shown}`
+  return `${shown}`
 }
 
 export function showMoment(kind: Exclude<NoticeKind, 'none'>): MomentNotice {

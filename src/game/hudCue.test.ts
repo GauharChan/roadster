@@ -2,17 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { formatClimb, showMoment, tickMoment } from './hudCue'
 
 describe('升降趋势', () => {
-  it('正的竖直速度写成上升，负的写成下降', () => {
-    expect(formatClimb(4.2)).toBe('+4 上升')
-    expect(formatClimb(1.2)).toBe('+1 上升')
-    expect(formatClimb(-4.2)).toBe('-4 下降')
-    expect(formatClimb(-1.2)).toBe('-1 下降')
+  it('正的竖直速度带正号，负的带负号，不另起一行说明', () => {
+    expect(formatClimb(4.2)).toBe('+4')
+    expect(formatClimb(1.2)).toBe('+1')
+    expect(formatClimb(-4.2)).toBe('-4')
+    expect(formatClimb(-1.2)).toBe('-1')
+    expect(formatClimb(4.2).includes('上升')).toBe(false)
   })
 
-  it('接近 0 时不标成上升或下降', () => {
-    expect(formatClimb(0)).toBe('0')
-    expect(formatClimb(0.2)).toBe('0')
-    expect(formatClimb(-0.2)).toBe('0')
+  it('接近 0 时不占读数', () => {
+    expect(formatClimb(0)).toBe('')
+    expect(formatClimb(0.2)).toBe('')
+    expect(formatClimb(-0.2)).toBe('')
   })
 })
 

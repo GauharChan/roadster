@@ -21,6 +21,12 @@ import { createThrusters, type ThrusterEmit } from '../game/thrusters'
 import { createVehicle, resetVehicle, stepVehicle, type VehicleState } from '../game/vehicle'
 import { useInput } from './useInput'
 
+declare global {
+  interface Window {
+    __roadsterHold?: boolean
+  }
+}
+
 export function useRoadsterGame(
   stage: Readonly<ShallowRef<{ root: unknown } | null>>,
 ): GameController {
@@ -153,6 +159,10 @@ function mountGame(
 
   const frame = (now: number) => {
     if (!running) return
+    if (window.__roadsterHold) {
+      requestAnimationFrame(frame)
+      return
+    }
     const dt = Math.min(0.033, (now - last) / 1000)
     last = now
     const command = input.sample()
@@ -189,8 +199,8 @@ function mountGame(
       up.set(0, 1, 0).applyQuaternion(rig.root.quaternion)
       rig.nozzles.forEach(([x, y, z], index) => {
         const belly = index >= 2
-        const back = belly ? 5 : 18
-        const down = belly ? 24 : 9
+        const back = belly ? 2.4 : 6.5
+        const down = belly ? 7 : 3.2
         nozzle.set(x, y, z).applyQuaternion(rig.root.quaternion).add(rig.root.position)
         emits.push({
           x: nozzle.x,
@@ -230,12 +240,7 @@ function mountGame(
     blob.scale.setScalar(shadowScale)
     updateCamera(camera, state, heading, desired, look, lookTarget, scratch, dt, snapCamera)
     snapCamera = false
-    guides.update(
-      camera.position,
-      look,
-      { x: state.x, z: state.z },
-      state.mode === 'air',
-    )
+    guides.update(camera.position, look)
     publishHud(hud, state, notice)
     renderer.render(scene, camera)
     requestAnimationFrame(frame)
@@ -259,7 +264,7 @@ function mountGame(
 }
 
 function updateCamera(
-  camera: { position: Vector3; lookAt: (target: Vector3) => void },
+  camera: { position: Vector3; up?: Vector3; lookAt: (target: Vector3) => void },
   state: VehicleState,
   heading: Vector3,
   desired: Vector3,
@@ -292,11 +297,20 @@ function updateCamera(
       Math.max(1.8, state.y * 0.38 + 3.5 + Math.min(state.y, 36) * 0.12),
       state.z - heading.z * distance + heading.x * side,
     )
-    lookTarget.set(state.x, state.y + 1.15, state.z)
+    lookTarget.set(
+      state.x + heading.x * 8,
+      state.y + 1.15,
+      state.z + heading.z * 8,
+    )
   }
   const blend = snap ? 1 : 1 - Math.exp(-3.4 * dt)
   camera.position.lerp(desired, blend)
   look.lerp(lookTarget, blend)
+  if (state.mode === 'air') {
+    camera.position.y = desired.y
+    look.y = lookTarget.y
+  }
+  camera.up?.set(0, 1, 0)
   camera.lookAt(look)
 }
 

@@ -43,14 +43,14 @@ const objective = computed(() => {
         <p class="metric">
           <span class="value" data-altitude>{{ game.hud.altitude }}</span>
           <span class="unit">m</span>
+          <span
+            class="climb"
+            data-climb
+            :class="{ down: game.hud.climb.startsWith('-') }"
+          >{{ game.hud.climb }}</span>
         </p>
         <p class="mode" :class="{ flying: game.hud.mode === 'air' }">{{ modeLabel }}</p>
       </div>
-      <p
-        class="trend"
-        data-climb
-        :class="{ up: game.hud.climb.startsWith('+'), down: game.hud.climb.startsWith('-') }"
-      >{{ game.hud.climb }} m/s</p>
       <p class="notice" role="status" aria-live="polite" :data-kind="game.hud.noticeKind">{{ game.hud.notice }}</p>
       <button
         v-if="game.hud.stuntDone"
@@ -136,15 +136,13 @@ const objective = computed(() => {
   color: #ff2d2a;
 }
 
-.trend {
-  margin: 8px 0 0;
-  font-family: "IBM Plex Mono", "PingFang SC", ui-monospace, monospace;
-  font-size: 18px;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
+.climb {
+  color: #b7b1a8;
+  font-size: 13px;
+  letter-spacing: 0.06em;
 }
 
-.trend.down {
+.climb.down {
   color: #9eb6d6;
 }
 
