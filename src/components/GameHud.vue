@@ -43,14 +43,14 @@ const objective = computed(() => {
         <p class="metric">
           <span class="value" data-altitude>{{ game.hud.altitude }}</span>
           <span class="unit">m</span>
-          <span
-            class="climb"
-            data-climb
-            :class="{ down: game.hud.climb.startsWith('-') }"
-          >{{ game.hud.climb }}</span>
         </p>
         <p class="mode" :class="{ flying: game.hud.mode === 'air' }">{{ modeLabel }}</p>
       </div>
+      <p
+        class="climb"
+        data-climb
+        :class="{ down: game.hud.climb.includes('-') }"
+      >{{ game.hud.climb }}</p>
       <p class="notice" role="status" aria-live="polite" :data-kind="game.hud.noticeKind">{{ game.hud.notice }}</p>
       <button
         v-if="game.hud.stuntDone"
@@ -87,7 +87,7 @@ const objective = computed(() => {
 
 .eyebrow {
   margin: 0;
-  color: #ff2d2a;
+  color: #b7b1a8;
   font-size: 12px;
   letter-spacing: 0.42em;
 }
@@ -138,8 +138,13 @@ const objective = computed(() => {
 
 .climb {
   color: #b7b1a8;
-  font-size: 13px;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.climb:empty {
+  display: none;
 }
 
 .climb.down {
@@ -149,8 +154,8 @@ const objective = computed(() => {
 .again,
 .reset {
   pointer-events: auto;
-  border: 1px solid #ff2d2a;
-  background: rgba(7, 8, 12, 0.72);
+  border: 1px solid #8d939c;
+  background: rgba(16, 18, 24, 0.55);
   color: #e7e1d6;
   font: inherit;
   letter-spacing: 0.14em;
@@ -171,7 +176,7 @@ const objective = computed(() => {
 
 .again:focus-visible,
 .reset:focus-visible {
-  outline: 2px solid #ff2d2a;
+  outline: 2px solid #c5ccd4;
   outline-offset: 3px;
 }
 
@@ -189,6 +194,7 @@ const objective = computed(() => {
   gap: 6px;
   align-items: baseline;
   margin: 0;
+  white-space: nowrap;
 }
 
 .value {
@@ -206,23 +212,26 @@ const objective = computed(() => {
 
 .mode {
   margin: 0;
+  white-space: nowrap;
 }
 
 .flying {
-  color: #ff2d2a;
+  color: #d5dbe3;
 }
 
 .hint {
   position: absolute;
-  bottom: calc(16px + env(safe-area-inset-bottom));
-  left: 50%;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  left: calc(14px + env(safe-area-inset-left));
+  max-width: 15rem;
   margin: 0;
+  padding: 7px 10px;
+  background: rgba(12, 14, 18, 0.42);
   color: #b7b1a8;
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  line-height: 1.55;
-  text-align: center;
-  transform: translateX(-50%);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  line-height: 1.45;
+  text-align: left;
 }
 
 @media (pointer: coarse) {

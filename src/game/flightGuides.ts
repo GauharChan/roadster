@@ -3,7 +3,6 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
-  Vector3,
 } from 'three'
 import {
   HINT_COLOR,
@@ -36,9 +35,6 @@ export function createFlightGuides(): FlightGuides {
   root.name = 'flight-guides'
   root.add(hint)
 
-  const aim = new Vector3()
-  const from = new Vector3(0, 1, 0)
-
   return {
     root,
     hint,
@@ -47,10 +43,22 @@ export function createFlightGuides(): FlightGuides {
       hint.visible = placed !== null
       if (!placed) return
       hint.position.set(placed.x, placed.y, placed.z)
-      const nearest = placeEdgeHint(camera, look)
-      if (!nearest) return
-      aim.set(nearest.x - camera.x, nearest.y - camera.y, nearest.z - camera.z)
-      if (aim.lengthSq() > 1e-6) hint.quaternion.setFromUnitVectors(from, aim.normalize())
+      hint.lookAt(camera.x, camera.y, camera.z)
+      const fx = look.x - camera.x
+      const fy = look.y - camera.y
+      const fz = look.z - camera.z
+      const fl = Math.hypot(fx, fy, fz) || 1
+      const forwardY = fy / fl
+      const rx = -fz
+      const rz = fx
+      const rl = Math.hypot(rx, rz) || 1
+      const vx = placed.x - camera.x
+      const vy = placed.y - camera.y
+      const vz = placed.z - camera.z
+      const along = (vx * fx + vy * fy + vz * fz) / fl
+      const lateral = (vx * rx + vz * rz) / rl
+      const vertical = vy - forwardY * along
+      hint.rotateZ(Math.atan2(lateral, vertical))
     },
     dispose() {
       hint.geometry.dispose()

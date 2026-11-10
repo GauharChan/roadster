@@ -14,13 +14,20 @@ const COPY: Record<Exclude<NoticeKind, 'none'>, string> = {
   reset: '已手动重置',
 }
 
-/** 并进高度读数的短趋势。死区内留空，避免再占一行。符号与竖直速度一致。 */
+/** 与世界竖直速度同号的整数。死区内留空。 */
 export function formatClimb(vy: number): string {
   if (!Number.isFinite(vy) || Math.abs(vy) < 0.5) return ''
   const signed = Math.round(vy)
   const shown = signed === 0 ? (vy > 0 ? 1 : -1) : signed
   if (shown > 0) return `+${shown}`
   return `${shown}`
+}
+
+/** 把升降并进高度旁，并写明这是竖直速度。 */
+export function climbLabel(vy: number): string {
+  const climb = formatClimb(vy)
+  if (!climb) return ''
+  return `竖直 ${climb} m/s`
 }
 
 export function showMoment(kind: Exclude<NoticeKind, 'none'>): MomentNotice {

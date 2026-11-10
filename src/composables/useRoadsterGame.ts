@@ -16,7 +16,7 @@ import { createStage } from '../game/createScene'
 import { type GameController, type GameHudState } from '../game/context'
 import { frameFlightCamera } from '../game/flightFrame'
 import { createFlightGuides } from '../game/flightGuides'
-import { idleNotice, formatClimb, showMoment, tickMoment, type MomentNotice } from '../game/hudCue'
+import { idleNotice, climbLabel, showMoment, tickMoment, type MomentNotice } from '../game/hudCue'
 import { createThrusters, type ThrusterEmit } from '../game/thrusters'
 import { createVehicle, resetVehicle, stepVehicle, type VehicleState } from '../game/vehicle'
 import { useInput } from './useInput'
@@ -24,6 +24,8 @@ import { useInput } from './useInput'
 declare global {
   interface Window {
     __roadsterHold?: boolean
+    __roadsterHint?: boolean
+    __roadsterUpY?: number
   }
 }
 
@@ -241,6 +243,8 @@ function mountGame(
     updateCamera(camera, state, heading, desired, look, lookTarget, scratch, dt, snapCamera)
     snapCamera = false
     guides.update(camera.position, look)
+    window.__roadsterHint = guides.hint.visible
+    window.__roadsterUpY = camera.up.y
     publishHud(hud, state, notice)
     renderer.render(scene, camera)
     requestAnimationFrame(frame)
@@ -320,7 +324,7 @@ function publishHud(hud: GameHudState, state: VehicleState, notice: MomentNotice
     : Math.abs(state.speed)
   const speedKmh = Math.round(metersPerSecond * 3.6)
   const altitude = Math.max(0, Math.round(state.y))
-  const climb = formatClimb(state.vy)
+  const climb = climbLabel(state.vy)
   if (hud.speedKmh !== speedKmh) hud.speedKmh = speedKmh
   if (hud.altitude !== altitude) hud.altitude = altitude
   if (hud.climb !== climb) hud.climb = climb

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatClimb, showMoment, tickMoment } from './hudCue'
+import { climbLabel, formatClimb, showMoment, tickMoment } from './hudCue'
 
 describe('升降趋势', () => {
   it('正的竖直速度带正号，负的带负号，不另起一行说明', () => {
@@ -14,6 +14,12 @@ describe('升降趋势', () => {
     expect(formatClimb(0)).toBe('')
     expect(formatClimb(0.2)).toBe('')
     expect(formatClimb(-0.2)).toBe('')
+  })
+
+  it('读数写明竖直速度和米每秒', () => {
+    expect(climbLabel(42)).toBe('竖直 +42 m/s')
+    expect(climbLabel(-45.2)).toBe('竖直 -45 m/s')
+    expect(climbLabel(0)).toBe('')
   })
 })
 
