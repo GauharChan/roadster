@@ -110,6 +110,22 @@ describe('赛道离开画面才提示', () => {
     expect(box.left < reset.right && box.right > reset.left && box.top < reset.bottom).toBe(false)
   })
 
+  it('上方标题不占底边时，中点只按说明右侧计算', () => {
+    const viewport = { width: 1000, height: 600 }
+    const help = { left: 14, top: 520, right: 200, bottom: 586 }
+    const title = { left: 18, top: 12, right: 420, bottom: 180 }
+    const fitted = fitCourseHint(
+      { x: 40, y: 92, angle: 175 },
+      viewport,
+      { help, title },
+      { width: 88, height: 20 },
+    )
+    const leftLimit = help.right + 12 + 44
+    const rightLimit = viewport.width - viewport.width * 0.08 - 44
+    expect(fitted.x / 100 * viewport.width).toBeCloseTo((leftLimit + rightLimit) / 2, 3)
+    expect(fitted.y).toBeCloseTo(92, 5)
+  })
+
   it('贴在右缘且不压说明时，不改到别的位置', () => {
     const raw = { x: 92, y: 48, angle: 90 }
     const fitted = fitCourseHint(

@@ -224,16 +224,17 @@ export function fitCourseHint(
 ): CourseHint {
   if (hint.y < BOTTOM_EDGE_Y - 1.5) return slideIfCovering(hint, viewport, zones, size)
   const rightInset = viewport.width * (1 - EDGE) / 2
-  const blockers = [zones.help, zones.title].filter((zone): zone is PxRect => !!zone && zone.right > zone.left)
-  const leftLimit = blockers.reduce(
-    (limit, zone) => Math.max(limit, zone.right + HINT_GAP + size.width / 2),
-    rightInset + size.width / 2,
-  )
+  let leftLimit = zones.help && zones.help.right > zones.help.left
+    ? zones.help.right + HINT_GAP + size.width / 2
+    : rightInset + size.width / 2
   let rightLimit = viewport.width - rightInset - size.width / 2
   const bottomTop = (BOTTOM_EDGE_Y / 100) * viewport.height - size.height / 2
-  if (zones.reset && zones.reset.bottom > bottomTop && zones.reset.left > 0) {
-    rightLimit = Math.min(rightLimit, zones.reset.left - HINT_GAP - size.width / 2)
-  }
+  const bottomBottom = (BOTTOM_EDGE_Y / 100) * viewport.height + size.height / 2
+  const crossesBottom = (zone: PxRect | null | undefined) => !!zone
+    && zone.bottom > bottomTop
+    && zone.top < bottomBottom
+  if (crossesBottom(zones.title)) leftLimit = Math.max(leftLimit, zones.title!.right + HINT_GAP + size.width / 2)
+  if (crossesBottom(zones.reset)) rightLimit = Math.min(rightLimit, zones.reset!.left - HINT_GAP - size.width / 2)
   const center = leftLimit <= rightLimit ? (leftLimit + rightLimit) / 2 : rightLimit
   const x = Math.min(viewport.width - size.width / 2, Math.max(size.width / 2, center)) / viewport.width * 100
   return { ...hint, x, y: BOTTOM_EDGE_Y }
