@@ -11,9 +11,10 @@ const modeLabel = computed(() => {
   return '路面'
 })
 
+const airObjective = computed(() => game.hud.mode === 'air' && !game.hud.stuntDone)
+
 const objective = computed(() => {
   if (game.hud.stuntDone) return '这一轮完成'
-  if (game.hud.mode === 'air') return '空格喷气，W/S 调整俯仰，A/D 调整横滚；松开空格停止喷气，但车辆仍有惯性'
   if (game.hud.mode === 'ramp') return '继续往上，冲出坡唇'
   return '加速对准坡道口'
 })
@@ -34,7 +35,11 @@ const objective = computed(() => {
         >Roadster 2020</a>
         · metarex.4d · CC BY 4.0
       </p>
-      <p class="objective">{{ objective }}</p>
+      <p v-if="airObjective" class="objective objective-lines">
+        <span>空格喷气，W/S 调整俯仰，A/D 调整横滚</span>
+        <span>松开空格停止喷气，但车辆仍有惯性</span>
+      </p>
+      <p v-else class="objective">{{ objective }}</p>
       <div class="readout">
         <p class="metric">
           <span class="value">{{ game.hud.speedKmh }}</span>
@@ -131,6 +136,17 @@ const objective = computed(() => {
 
 .objective {
   color: #e7e1d6;
+}
+
+.objective-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: none;
+}
+
+.objective-lines span {
+  white-space: nowrap;
 }
 
 .notice {
