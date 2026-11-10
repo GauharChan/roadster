@@ -15,7 +15,7 @@ import { createCar, loadRoadster, type CarRig } from '../game/createCar'
 import { createStage } from '../game/createScene'
 import { type GameController, type GameHudState } from '../game/context'
 import { frameFlightCamera } from '../game/flightFrame'
-import { createFlightGuides } from '../game/flightGuides'
+import { courseHintLayout } from '../game/flightFrame'
 import { idleNotice, climbLabel, showMoment, tickMoment, type MomentNotice } from '../game/hudCue'
 import { createThrusters, type ThrusterEmit } from '../game/thrusters'
 import { createVehicle, resetVehicle, stepVehicle, type VehicleState } from '../game/vehicle'
@@ -26,6 +26,30 @@ declare global {
     __roadsterHold?: boolean
     __roadsterHint?: boolean
     __roadsterUpY?: number
+    __roadsterSample?: {
+      perf: number
+      x: number
+      y: number
+      z: number
+      vx: number
+      vy: number
+      vz: number
+      qx: number
+      qy: number
+      qz: number
+      qw: number
+      mode: string
+      event: string
+      upX: number
+      upY: number
+      upZ: number
+      hint: boolean
+      hintX: number | null
+      hintY: number | null
+      hintAngle: number | null
+      thrust: boolean
+      reset: boolean
+    }
   }
 }
 
@@ -40,6 +64,7 @@ export function useRoadsterGame(
     stuntDone: false,
     notice: '',
     noticeKind: 'none',
+    courseHint: null,
   })
   const input = useInput()
   let stop = () => {}
@@ -99,8 +124,6 @@ function mountGame(
 
   const thrusters = createThrusters()
   scene.add(thrusters.root)
-  const guides = createFlightGuides()
-  scene.add(guides.root)
 
   const blobMaterial = new MeshBasicMaterial({
     color: '#000000',
@@ -242,9 +265,40 @@ function mountGame(
     blob.scale.setScalar(shadowScale)
     updateCamera(camera, state, heading, desired, look, lookTarget, scratch, dt, snapCamera)
     snapCamera = false
-    guides.update(camera.position, look)
-    window.__roadsterHint = guides.hint.visible
+    const courseHint = courseHintLayout(
+      camera.position,
+      look,
+      undefined,
+      camera.fov,
+      camera.aspect,
+    )
+    hud.courseHint = courseHint
+    window.__roadsterHint = courseHint !== null
     window.__roadsterUpY = camera.up.y
+    window.__roadsterSample = {
+      perf: now,
+      x: state.x,
+      y: state.y,
+      z: state.z,
+      vx: state.vx,
+      vy: state.vy,
+      vz: state.vz,
+      qx: state.qx,
+      qy: state.qy,
+      qz: state.qz,
+      qw: state.qw,
+      mode: state.mode,
+      event: state.event,
+      upX: camera.up.x,
+      upY: camera.up.y,
+      upZ: camera.up.z,
+      hint: courseHint !== null,
+      hintX: courseHint?.x ?? null,
+      hintY: courseHint?.y ?? null,
+      hintAngle: courseHint?.angle ?? null,
+      thrust: command.thrust,
+      reset: command.reset,
+    }
     publishHud(hud, state, notice)
     renderer.render(scene, camera)
     requestAnimationFrame(frame)
@@ -259,8 +313,6 @@ function mountGame(
     observer.disconnect()
     thrusters.root.removeFromParent()
     thrusters.dispose()
-    guides.root.removeFromParent()
-    guides.dispose()
     disposeScene(scene)
     renderer.dispose()
     renderer.domElement.remove()

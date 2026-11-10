@@ -106,13 +106,38 @@ export function isPointInView(
   return Math.atan2(lateral, along) < halfH * 0.9 && Math.atan2(vertical, along) < halfV * 0.9
 }
 
-export function isCourseInView(camera: Vec3, look: Vec3, markers = courseMarkers()): boolean {
-  return markers.some((marker) => isPointInView(camera, look, marker))
+export function isCourseInView(
+  camera: Vec3,
+  look: Vec3,
+  markers = courseMarkers(),
+  fovDeg = VIEW_FOV_DEG,
+  aspect = 16 / 9,
+): boolean {
+  return markers.some((marker) => isPointInView(camera, look, marker, fovDeg, aspect))
 }
 
-/** 赛道还在画面里时不给标记。离开后才在视线边缘给一个灰白方向。 */
-export function placeEdgeHint(camera: Vec3, look: Vec3, markers = courseMarkers()): Vec3 | null {
-  if (isCourseInView(camera, look, markers)) return null
+export interface CourseHint {
+  /** 相对画面左边的百分比。贴边，不在中央。 */
+  x: number
+  /** 相对画面上边的百分比。 */
+  y: number
+  /** 箭头方向。0 朝上，顺时针为正。 */
+  angle: number
+}
+
+const EDGE = 0.84
+
+/**
+ * 赛道还在视锥里时返回 null。离开后把方向投影到画面内缩边，避免落在中央。
+ */
+export function courseHintLayout(
+  camera: Vec3,
+  look: Vec3,
+  markers = courseMarkers(),
+  fovDeg = VIEW_FOV_DEG,
+  aspect = 16 / 9,
+): CourseHint | null {
+  if (isCourseInView(camera, look, markers, fovDeg, aspect)) return null
   const nearest = markers.reduce((best, marker) => {
     const bestD = (best.x - camera.x) ** 2 + (best.y - camera.y) ** 2 + (best.z - camera.z) ** 2
     const nextD = (marker.x - camera.x) ** 2 + (marker.y - camera.y) ** 2 + (marker.z - camera.z) ** 2
@@ -126,16 +151,36 @@ export function placeEdgeHint(camera: Vec3, look: Vec3, markers = courseMarkers(
   const rx = -forward.z
   const rz = forward.x
   const rl = Math.hypot(rx, rz) || 1
-  const right = { x: rx / rl, z: rz / rl }
-  const toX = nearest.x - camera.x
-  const toZ = nearest.z - camera.z
-  const side = toX * right.x + toZ * right.z
-  const ahead = toX * forward.x + toZ * forward.z
-  const angle = Math.atan2(side, ahead)
-  const distance = 7
+  const right = { x: rx / rl, y: 0, z: rz / rl }
+  const ux = right.y * forward.z - right.z * forward.y
+  const uy = right.z * forward.x - right.x * forward.z
+  const uz = right.x * forward.y - right.y * forward.x
+  const ul = Math.hypot(ux, uy, uz) || 1
+  const up = { x: ux / ul, y: uy / ul, z: uz / ul }
+  const vx = nearest.x - camera.x
+  const vy = nearest.y - camera.y
+  const vz = nearest.z - camera.z
+  const along = vx * forward.x + vy * forward.y + vz * forward.z
+  const lateral = vx * right.x + vy * right.y + vz * right.z
+  const vertical = vx * up.x + vy * up.y + vz * up.z
+  const halfV = ((fovDeg * Math.PI) / 180) / 2
+  const halfH = Math.atan(Math.tan(halfV) * aspect)
+  let nx = 0
+  let ny = -3
+  if (along > 0.5) {
+    nx = Math.atan2(lateral, along) / halfH
+    ny = Math.atan2(vertical, along) / halfV
+  } else if (Math.hypot(lateral, vertical) > 0.5) {
+    const span = Math.hypot(lateral, vertical)
+    nx = (lateral / span) * 3
+    ny = (vertical / span) * 3
+  }
+  const scale = Math.max(Math.abs(nx) / EDGE, Math.abs(ny) / EDGE, 1)
+  const ex = nx / scale
+  const ey = ny / scale
   return {
-    x: camera.x + forward.x * distance + right.x * Math.sin(angle) * 2.1,
-    y: camera.y + forward.y * distance + Math.cos(angle) * 1.15,
-    z: camera.z + forward.z * distance + right.z * Math.sin(angle) * 2.1,
+    x: 50 + ex * 50,
+    y: 50 - ey * 50,
+    angle: (Math.atan2(nx, ny) * 180) / Math.PI,
   }
 }

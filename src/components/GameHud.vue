@@ -65,6 +65,15 @@ const objective = computed(() => {
 
     <button type="button" class="reset" data-action="reset" @click="game.requestReset()">重置</button>
     <p class="hint">W/S 油门，空中改为俯仰<br>A/D 转向，空中改为横滚<br>空格推进 · F 翻转 · R 重置</p>
+    <div
+      v-if="game.hud.courseHint"
+      class="course-hint"
+      data-course-hint
+      :style="{ left: `${game.hud.courseHint.x}%`, top: `${game.hud.courseHint.y}%` }"
+    >
+      <span class="chevron" :style="{ transform: `rotate(${game.hud.courseHint.angle + 45}deg)` }" />
+      <span>赛道方向</span>
+    </div>
   </header>
 </template>
 
@@ -232,6 +241,26 @@ const objective = computed(() => {
   letter-spacing: 0.06em;
   line-height: 1.45;
   text-align: left;
+}
+
+.course-hint {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: rgba(215, 221, 228, 0.78);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.chevron {
+  width: 9px;
+  height: 9px;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
 }
 
 @media (pointer: coarse) {

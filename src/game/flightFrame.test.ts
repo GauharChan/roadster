@@ -6,9 +6,9 @@ import {
   VIEW_FOV_DEG,
   courseMarkers,
   frameFlightCamera,
+  courseHintLayout,
   isCourseInView,
   isPointInView,
-  placeEdgeHint,
   type FlightFrame,
 } from './flightFrame'
 
@@ -48,37 +48,38 @@ describe('赛道离开画面才提示', () => {
     expect(isPointInView(camera, look, { x: 0, y: 0.4, z: 40 })).toBe(false)
   })
 
-  it('赛道还在前方时不放标记', () => {
-    const camera = { x: 0, y: 8, z: 30 }
-    const look = { x: 0, y: 6, z: -4 }
-    expect(isCourseInView(camera, look)).toBe(true)
-    expect(placeEdgeHint(camera, look)).toBeNull()
+  it('赛道还在前方时不放标记，转回来也继续隐藏', () => {
+    const visible = { camera: { x: 0, y: 8, z: 30 }, look: { x: 0, y: 6, z: -4 } }
+    const away = { camera: { x: 0, y: 50, z: -80 }, look: { x: 0, y: 49, z: -96 } }
+    expect(isCourseInView(visible.camera, visible.look)).toBe(true)
+    expect(courseHintLayout(visible.camera, visible.look)).toBeNull()
+    expect(courseHintLayout(away.camera, away.look)).not.toBeNull()
+    expect(courseHintLayout(visible.camera, visible.look)).toBeNull()
   })
 
-  it('赛道全部落到身后时，提示留在前方且不是红色', () => {
+  it('赛道在画面外时，提示贴边且不在中央', () => {
     const camera = { x: 0, y: 50, z: -80 }
     const look = { x: 0, y: 49, z: -96 }
-    const hint = placeEdgeHint(camera, look)
+    const hint = courseHintLayout(camera, look)
     expect(isCourseInView(camera, look)).toBe(false)
     expect(hint).not.toBeNull()
-    const dx = (hint?.x ?? 0) - camera.x
-    const dy = (hint?.y ?? 0) - camera.y
-    const dz = (hint?.z ?? 0) - camera.z
-    const forwardX = look.x - camera.x
-    const forwardY = look.y - camera.y
-    const forwardZ = look.z - camera.z
-    expect(dx * forwardX + dy * forwardY + dz * forwardZ).toBeGreaterThan(0)
+    const edge = Math.min(hint?.x ?? 50, 100 - (hint?.x ?? 50), hint?.y ?? 50, 100 - (hint?.y ?? 50))
+    const fromCenter = Math.hypot((hint?.x ?? 50) - 50, (hint?.y ?? 50) - 50)
+    expect(edge).toBeLessThan(18)
+    expect(fromCenter).toBeGreaterThan(30)
     expect(HINT_COLOR.toLowerCase()).toBe('#d7dde4')
-    expect(HINT_COLOR.toLowerCase().includes('ff2')).toBe(false)
   })
 
-  it('赛道在画面右侧外面时，提示偏到右侧', () => {
+  it('赛道在画面右侧外面时，提示贴右缘并朝右', () => {
     const camera = { x: 0, y: 6, z: 0 }
     const look = { x: 0, y: 6, z: -20 }
     const markers = [{ x: 50, y: 1, z: -8 }]
     expect(isPointInView(camera, look, markers[0])).toBe(false)
-    const hint = placeEdgeHint(camera, look, markers)
+    const hint = courseHintLayout(camera, look, markers)
     expect(hint).not.toBeNull()
-    expect((hint?.x ?? 0) - camera.x).toBeGreaterThan(0.4)
+    expect(hint?.x ?? 0).toBeGreaterThan(88)
+    expect(Math.hypot((hint?.x ?? 50) - 50, (hint?.y ?? 50) - 50)).toBeGreaterThan(30)
+    expect(hint?.angle ?? 0).toBeGreaterThan(45)
+    expect(hint?.angle ?? 180).toBeLessThan(150)
   })
 })
