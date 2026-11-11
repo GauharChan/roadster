@@ -178,13 +178,13 @@ export function createThrusters(): ThrusterPool {
           emit.vx * (1 + (Math.random() - 0.5) * sway),
           emit.vy * (1 + (Math.random() - 0.5) * sway),
           emit.vz * (1 + (Math.random() - 0.5) * sway),
-          0.62,
-          0.22,
-          Math.min(2.2, 0.45 + speed * 0.06),
-          Math.min(3.4, 0.9 + speed * 0.08),
-          Math.min(8.2, 2.2 + speed * 0.22),
+          0.28,
+          0.08,
+          Math.min(0.42, 0.16 + speed * 0.012),
+          Math.min(0.55, 0.18 + speed * 0.014),
+          Math.min(1.05, 0.35 + speed * 0.02),
         )
-        if (Math.random() < (coarse ? 0.28 : 0.42)) {
+        if (Math.random() < (coarse ? 0.12 : 0.18)) {
           spawn(
             smokes,
             emit.x,
