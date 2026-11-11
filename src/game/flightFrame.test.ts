@@ -70,6 +70,19 @@ describe('镜头认赛道，不认车头', () => {
     expect(isPointInView(seen.camera, seen.look, { x: 0, y: 0.4, z: 12 })).toBe(true)
   })
 
+  it('约 50 米高时镜头离车更远，地面方向仍留在画面里', () => {
+    const frame = frameCourseCamera({ x: 0, y: 50, z: 18, mode: 'air' })
+    const seen = viewFrom(frame)
+    const distance = Math.hypot(frame.cameraX, frame.cameraY - 50, frame.cameraZ - 18)
+    const pitch = pitchAboveHorizon(frame)
+    expect(distance).toBeGreaterThan(15)
+    expect(frame.cameraY - 50).toBeLessThan(8)
+    expect(pitch).toBeLessThan(-4)
+    expect(pitch).toBeGreaterThan(-14)
+    expect(isPointInView(seen.camera, seen.look, { x: 0, y: 50.8, z: 18 })).toBe(true)
+    expect(isPointInView(seen.camera, seen.look, { x: 0, y: 0.35, z: 84 })).toBe(true)
+  })
+
   it('离坡后向下能看到落点方向的路面，车也留在画面里', () => {
     const frame = frameCourseCamera({ x: 0, y: 44, z: -4, mode: 'air' })
     const seen = viewFrom(frame)

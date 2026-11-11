@@ -24,11 +24,11 @@ export interface Vec3 {
   z: number
 }
 
-const CHASE_BACK = 8
-const CHASE_SIDE = 3.2
-const CAMERA_LIFT = 2.6
-const LOOK_AHEAD = 6
-const LOOK_LIFT = 0.2
+const CHASE_BACK = 20
+const CHASE_SIDE = 6.2
+const CAMERA_LIFT = 5
+const LOOK_AHEAD = 14
+const LOOK_LIFT = -2.2
 const ROAD_Z_MIN = -6
 const ROAD_Z_MAX = 88
 
