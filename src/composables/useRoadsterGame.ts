@@ -43,6 +43,12 @@ declare global {
       upX: number
       upY: number
       upZ: number
+      camX: number
+      camY: number
+      camZ: number
+      lookX: number
+      lookY: number
+      lookZ: number
       hint: boolean
       hintX: number | null
       hintY: number | null
@@ -293,6 +299,12 @@ function mountGame(
       upX: camera.up.x,
       upY: camera.up.y,
       upZ: camera.up.z,
+      camX: camera.position.x,
+      camY: camera.position.y,
+      camZ: camera.position.z,
+      lookX: look.x,
+      lookY: look.y,
+      lookZ: look.z,
       hint: courseHint !== null,
       hintX: courseHint?.x ?? null,
       hintY: courseHint?.y ?? null,
@@ -344,22 +356,12 @@ function updateCamera(
   dt: number,
   snap: boolean,
 ): void {
-  const frame = frameCourseCamera({
-    x: state.x,
-    y: state.y,
-    z: state.z,
-    mode: state.mode,
-  })
+  const frame = frameCourseCamera({ x: state.x, y: state.y, z: state.z })
   desired.set(frame.cameraX, frame.cameraY, frame.cameraZ)
   lookTarget.set(frame.lookX, frame.lookY, frame.lookZ)
-  // 朝向已经锁在赛道上，不再跟车头。机位要跟上位置，车才不会在转向时甩出画面。
-  const blend = snap ? 1 : 1 - Math.exp(-14 * dt)
+  const blend = snap ? 1 : 1 - Math.exp(-3.4 * dt)
   camera.position.lerp(desired, blend)
   look.lerp(lookTarget, blend)
-  if (state.mode === 'air') {
-    camera.position.y = desired.y
-    look.y = lookTarget.y
-  }
   camera.up?.set(0, 1, 0)
   camera.lookAt(look)
 }

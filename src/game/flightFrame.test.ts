@@ -28,79 +28,61 @@ function viewFrom(frame: FlightFrame): { camera: { x: number; y: number; z: numb
   }
 }
 
-describe('镜头认赛道，不认车头', () => {
-  it('40、49、60 米仍朝向赛道，视线不随高度仰起', () => {
+function cameraYaw(frame: FlightFrame): number {
+  return Math.atan2(frame.lookX - frame.cameraX, -(frame.lookZ - frame.cameraZ)) * 180 / Math.PI
+}
+
+describe('一条跟随镜头', () => {
+  it('40、49、60 米仍看向前方，视线不随高度仰起', () => {
     expect(VIEW_FOV_DEG).toBe(48)
     ;[40, 49, 60, 200].forEach((y) => {
-      const frame = frameCourseCamera({ x: 10, y, z: -30, mode: 'air' })
+      const frame = frameCourseCamera({ x: 10, y, z: -30 })
       const seen = viewFrom(frame)
       expect(Math.abs(pitchAboveHorizon(frame))).toBeLessThan(14)
       expect(frame.lookY).toBeLessThan(frame.cameraY)
       expect(frame.cameraY).toBeGreaterThan(y)
       expect(frame.cameraY).toBeLessThan(y + 8)
-      expect(frame.lookZ).toBeGreaterThan(frame.cameraZ)
+      expect(frame.lookZ).toBeLessThan(frame.cameraZ)
       expect(isPointInView(seen.camera, seen.look, { x: 10, y: y + 0.6, z: -30 })).toBe(true)
     })
   })
 
-  it('地上转向后仍看着坡道，车也留在画面里', () => {
-    const frame = frameCourseCamera({ x: 10, y: 0, z: 36, mode: 'ground' })
+  it('地上转向后车留在画面里，视线不换边', () => {
+    const frame = frameCourseCamera({ x: 10, y: 0, z: 36 })
     const seen = viewFrom(frame)
     expect(frame.lookZ).toBeLessThan(frame.cameraZ)
+    expect(frame.cameraX).toBeGreaterThan(10)
     expect(isPointInView(seen.camera, seen.look, { x: 10, y: 0.8, z: 36 })).toBe(true)
-    expect(isPointInView(seen.camera, seen.look, { x: 0, y: 0.4, z: 16 })).toBe(true)
   })
 
-  it('同一位置倒车也不会把镜头拧到车尾', () => {
-    const parked = frameCourseCamera({ x: 1, y: 0, z: 50, mode: 'ground' })
-    const again = frameCourseCamera({ x: 1, y: 0, z: 50, mode: 'ground' })
+  it('同一位置重复取景不会把镜头拧到另一边', () => {
+    const parked = frameCourseCamera({ x: 1, y: 0, z: 50 })
+    const again = frameCourseCamera({ x: 1, y: 0, z: 50 })
     const seen = viewFrom(parked)
     expect(again).toEqual(parked)
     expect(parked.cameraZ).toBeGreaterThan(50)
     expect(parked.lookZ).toBeLessThan(50)
     expect(isPointInView(seen.camera, seen.look, { x: 1, y: 0.8, z: 50 })).toBe(true)
-    expect(isPointInView(seen.camera, seen.look, { x: 0, y: 0.4, z: 32 })).toBe(true)
   })
 
-  it('车偏到赛道一侧时，车仍在画面里，视线仍朝坡道', () => {
-    const frame = frameCourseCamera({ x: 18, y: 0, z: 34, mode: 'ground' })
-    const seen = viewFrom(frame)
-    expect(frame.lookZ).toBeLessThan(frame.cameraZ)
-    expect(isPointInView(seen.camera, seen.look, { x: 18, y: 0.8, z: 34 })).toBe(true)
-    expect(isPointInView(seen.camera, seen.look, { x: 0, y: 0.4, z: 12 })).toBe(true)
+  it('坡顶和下降到约 57 米用的是同一条朝向', () => {
+    const crown = frameCourseCamera({ x: 0, y: 23, z: -22 })
+    const descent = frameCourseCamera({ x: 0, y: 57, z: 43 })
+    const gap = Math.abs(cameraYaw(crown) - cameraYaw(descent))
+    expect(Math.min(gap, 360 - gap)).toBeLessThan(20)
+    expect(cameraYaw(crown)).toBeCloseTo(cameraYaw(frameCourseCamera({ x: 0, y: 0, z: 48 })), 5)
+    expect(isPointInView(viewFrom(crown).camera, viewFrom(crown).look, { x: 0, y: 23.8, z: -22 })).toBe(true)
+    expect(isPointInView(viewFrom(descent).camera, viewFrom(descent).look, { x: 0, y: 57.8, z: 43 })).toBe(true)
   })
 
-  it('约 50 米高时镜头离车更远，地面方向仍留在画面里', () => {
-    const frame = frameCourseCamera({ x: 0, y: 50, z: 18, mode: 'air' })
-    const seen = viewFrom(frame)
-    const distance = Math.hypot(frame.cameraX, frame.cameraY - 50, frame.cameraZ - 18)
-    const pitch = pitchAboveHorizon(frame)
-    expect(distance).toBeGreaterThan(15)
-    expect(frame.cameraY - 50).toBeLessThan(8)
-    expect(pitch).toBeLessThan(-4)
-    expect(pitch).toBeGreaterThan(-14)
-    expect(isPointInView(seen.camera, seen.look, { x: 0, y: 50.8, z: 18 })).toBe(true)
-    expect(isPointInView(seen.camera, seen.look, { x: 0, y: 0.35, z: 84 })).toBe(true)
-  })
-
-  it('离坡后向下能看到落点方向的路面，车也留在画面里', () => {
-    const frame = frameCourseCamera({ x: 0, y: 44, z: -4, mode: 'air' })
-    const seen = viewFrom(frame)
-    const pitch = pitchAboveHorizon(frame)
-    expect(pitch).toBeLessThan(-4)
-    expect(pitch).toBeGreaterThan(-14)
-    expect(isPointInView(seen.camera, seen.look, { x: 0, y: 44.6, z: -4 })).toBe(true)
-    expect(isPointInView(seen.camera, seen.look, { x: 0, y: 0.4, z: 80 })).toBe(true)
-  })
-
-  it('坡道上朝坡上走，不跟着倒车的车头翻下去', () => {
+  it('沿坡行驶时镜头不改到相反方向', () => {
     const here = sampleRamp(0.45, 0)
-    const further = sampleRamp(0.72, 0)
-    const frame = frameCourseCamera({ x: here.x, y: here.y, z: here.z, mode: 'ramp' })
-    const seen = viewFrom(frame)
-    expect(frame.lookY).toBeGreaterThan(here.y)
-    expect(isPointInView(seen.camera, seen.look, { x: here.x, y: here.y + 0.7, z: here.z })).toBe(true)
-    expect(isPointInView(seen.camera, seen.look, further)).toBe(true)
+    const further = sampleRamp(1.4, 0)
+    const low = frameCourseCamera({ x: here.x, y: here.y, z: here.z })
+    const high = frameCourseCamera({ x: further.x, y: further.y, z: further.z })
+    const gap = Math.abs(cameraYaw(low) - cameraYaw(high))
+    expect(Math.min(gap, 360 - gap)).toBeLessThan(20)
+    expect(isPointInView(viewFrom(low).camera, viewFrom(low).look, { x: here.x, y: here.y + 0.7, z: here.z })).toBe(true)
   })
 
   it('重新开始的车位仍在赛道采样附近', () => {
