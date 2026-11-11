@@ -49,6 +49,43 @@ export function frameCourseCamera(input: {
   }
 }
 
+const MIN_BACK = 8
+const MAX_DROP = 5.5
+const MAX_SIDE = 6
+
+/**
+ * 机位可以落后，视线始终落在车上，所以车不会被甩出画面。
+ * 朝向仍固定在道路前方一侧，不改去看坡道的反向。
+ */
+export function followCamera(input: {
+  x: number
+  y: number
+  z: number
+  cameraX: number
+  cameraY: number
+  cameraZ: number
+  dt: number
+  snap?: boolean
+}): FlightFrame {
+  const rest = frameCourseCamera(input)
+  const blend = input.snap ? 1 : 1 - Math.exp(-3.4 * input.dt)
+  let cameraX = input.cameraX + (rest.cameraX - input.cameraX) * blend
+  let cameraY = input.cameraY + (rest.cameraY - input.cameraY) * blend
+  let cameraZ = input.cameraZ + (rest.cameraZ - input.cameraZ) * blend
+  if (cameraZ < input.z + MIN_BACK) cameraZ = input.z + MIN_BACK
+  if (cameraY < input.y - MAX_DROP) cameraY = input.y - MAX_DROP
+  if (cameraX < input.x - MAX_SIDE) cameraX = input.x - MAX_SIDE
+  if (cameraX > input.x + CHASE_SIDE + MAX_SIDE) cameraX = input.x + CHASE_SIDE + MAX_SIDE
+  return {
+    cameraX,
+    cameraY,
+    cameraZ,
+    lookX: input.x,
+    lookY: input.y + 0.9,
+    lookZ: input.z,
+  }
+}
+
 /** 路面中线和环坡中线，供灯带与“赛道是否还在画面里”共用。 */
 export function courseMarkers(): Vec3[] {
   const road = Array.from({ length: 16 }, (_, index) => ({

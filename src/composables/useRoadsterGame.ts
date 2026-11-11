@@ -14,7 +14,7 @@ import {
 import { createCar, loadRoadster, type CarRig } from '../game/createCar'
 import { createStage } from '../game/createScene'
 import { type GameController, type GameHudState } from '../game/context'
-import { frameCourseCamera } from '../game/flightFrame'
+import { followCamera } from '../game/flightFrame'
 import { courseHintLayout, fitCourseHint, type PxRect } from '../game/flightFrame'
 import { idleNotice, climbLabel, showMoment, tickMoment, type MomentNotice } from '../game/hudCue'
 import { createThrusters, type ThrusterEmit } from '../game/thrusters'
@@ -356,12 +356,20 @@ function updateCamera(
   dt: number,
   snap: boolean,
 ): void {
-  const frame = frameCourseCamera({ x: state.x, y: state.y, z: state.z })
+  const frame = followCamera({
+    x: state.x,
+    y: state.y,
+    z: state.z,
+    cameraX: camera.position.x,
+    cameraY: camera.position.y,
+    cameraZ: camera.position.z,
+    dt,
+    snap,
+  })
   desired.set(frame.cameraX, frame.cameraY, frame.cameraZ)
   lookTarget.set(frame.lookX, frame.lookY, frame.lookZ)
-  const blend = snap ? 1 : 1 - Math.exp(-3.4 * dt)
-  camera.position.lerp(desired, blend)
-  look.lerp(lookTarget, blend)
+  camera.position.copy(desired)
+  look.copy(lookTarget)
   camera.up?.set(0, 1, 0)
   camera.lookAt(look)
 }

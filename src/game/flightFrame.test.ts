@@ -6,6 +6,7 @@ import {
   HINT_COLOR,
   VIEW_FOV_DEG,
   courseMarkers,
+  followCamera,
   frameCourseCamera,
   courseHintLayout,
   fitCourseHint,
@@ -73,6 +74,31 @@ describe('一条跟随镜头', () => {
     expect(cameraYaw(crown)).toBeCloseTo(cameraYaw(frameCourseCamera({ x: 0, y: 0, z: 48 })), 5)
     expect(isPointInView(viewFrom(crown).camera, viewFrom(crown).look, { x: 0, y: 23.8, z: -22 })).toBe(true)
     expect(isPointInView(viewFrom(descent).camera, viewFrom(descent).look, { x: 0, y: 57.8, z: 43 })).toBe(true)
+  })
+
+  it('车突然升高后仍留在画面里，镜头不翻到反方向', () => {
+    let camera = { x: 3.4, y: 3.2, z: 60 }
+    const steps = [
+      { x: 0, y: 0, z: 48 },
+      { x: 2, y: 8, z: 20 },
+      { x: 0, y: 23, z: -22 },
+      { x: 0, y: 40, z: -8 },
+      { x: 0, y: 50, z: 16 },
+      { x: 4, y: 57, z: 43 },
+      { x: 0, y: 0, z: 30 },
+    ]
+    const yaws: number[] = []
+    steps.forEach((step) => {
+      const frame = followCamera({ ...step, cameraX: camera.x, cameraY: camera.y, cameraZ: camera.z, dt: 0.033 })
+      const seen = viewFrom(frame)
+      expect(isPointInView(seen.camera, seen.look, { x: step.x, y: step.y + 0.9, z: step.z })).toBe(true)
+      yaws.push(cameraYaw(frame))
+      camera = { x: frame.cameraX, y: frame.cameraY, z: frame.cameraZ }
+    })
+    yaws.slice(1).forEach((yaw, index) => {
+      const gap = Math.abs(yaw - (yaws[index] ?? yaw))
+      expect(Math.min(gap, 360 - gap)).toBeLessThan(50)
+    })
   })
 
   it('沿坡行驶时镜头不改到相反方向', () => {
