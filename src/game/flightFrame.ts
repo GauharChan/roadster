@@ -28,32 +28,173 @@ const CHASE_BACK = 8
 const CHASE_SIDE = 3.2
 const CAMERA_LIFT = 2.6
 const LOOK_AHEAD = 6
-const LOOK_LIFT = 1.1
+const LOOK_LIFT = 0.2
+const ROAD_Z_MIN = -6
+const ROAD_Z_MAX = 88
 
-/**
- * 从侧后方看向前方，车和将要开过的赛道留在同一画面里。
- * 高度只改变机位高低，不把视线仰出地平线，也不限制飞多高。
- */
-export function frameFlightCamera(input: {
+export type CourseMode = 'ground' | 'ramp' | 'air'
+
+interface CoursePoint {
   x: number
   y: number
   z: number
-  headingX: number
-  headingZ: number
+  fx: number
+  fy: number
+  fz: number
+  theta: number | null
+}
+
+/**
+ * 机位跟着车，朝向只认赛道和坡道，不读车头、速度或横滚。
+ * 倒车不会把镜头拧去看车尾。离坡后放平视线，让地面留在画面下方。
+ */
+export function frameCourseCamera(input: {
+  x: number
+  y: number
+  z: number
+  mode: CourseMode
 }): FlightFrame {
-  const length = Math.hypot(input.headingX, input.headingZ) || 1
-  const forwardX = input.headingX / length
-  const forwardZ = input.headingZ / length
-  const rightX = -forwardZ
-  const rightZ = forwardX
+  const course = courseReference(input.x, input.y, input.z, input.mode)
+  const flat = horizontalForward(course)
+  const rightX = -flat.z
+  const rightZ = flat.x
+  const back = input.mode === 'air'
+    ? CHASE_BACK
+    : input.mode === 'ramp'
+      ? 9
+      : 12 + Math.min(input.y, 42) * 0.28
+  const side = input.mode === 'air' ? CHASE_SIDE : 3.4
+  const cameraX = input.x - flat.x * back + rightX * side
+  const cameraZ = input.z - flat.z * back + rightZ * side
+  const raised = Math.max(1.8, input.y * 0.38 + 3.5 + Math.min(input.y, 36) * 0.12)
+  const cameraY = input.mode === 'air'
+    ? input.y + CAMERA_LIFT
+    : input.mode === 'ramp'
+      ? Math.max(raised, input.y + 2.4)
+      : raised
+  const ahead = courseAhead(course, input.mode === 'ramp' ? 7 : input.mode === 'air' ? 18 : 16)
+  const lookAhead = input.mode === 'air' ? LOOK_AHEAD : 8
+  const rampRise = Math.max(0, ahead.y - input.y)
+  const lookY = input.mode === 'air'
+    ? input.y + LOOK_LIFT
+    : input.mode === 'ramp'
+      ? input.y + 1.15 + Math.min(1.8, rampRise * 0.5)
+      : input.y + 1.15
+  const camera = { x: cameraX, y: cameraY, z: cameraZ }
+  const car = { x: input.x, y: input.y + 0.85, z: input.z }
+  const pulled = pullTowardCourse(
+    camera,
+    {
+      x: input.x + flat.x * lookAhead,
+      y: lookY,
+      z: input.z + flat.z * lookAhead,
+    },
+    car,
+    ahead,
+  )
   return {
-    cameraX: input.x - forwardX * CHASE_BACK + rightX * CHASE_SIDE,
-    cameraY: input.y + CAMERA_LIFT,
-    cameraZ: input.z - forwardZ * CHASE_BACK + rightZ * CHASE_SIDE,
-    lookX: input.x + forwardX * LOOK_AHEAD,
-    lookY: input.y + LOOK_LIFT,
-    lookZ: input.z + forwardZ * LOOK_AHEAD,
+    cameraX,
+    cameraY,
+    cameraZ,
+    lookX: pulled.x,
+    lookY,
+    lookZ: pulled.z,
   }
+}
+
+function courseReference(x: number, y: number, z: number, mode: CourseMode): CoursePoint {
+  const roadZ = Math.min(ROAD_Z_MAX, Math.max(ROAD_Z_MIN, z))
+  const road: CoursePoint = {
+    x: 0,
+    y: 0.35,
+    z: roadZ,
+    fx: 0,
+    fy: 0,
+    fz: z < ROAD_Z_MIN ? 1 : -1,
+    theta: null,
+  }
+  const ramp = nearestRamp(x, y, z)
+  const rampNear = ramp.dist2 < 12 * 12 && z <= RAMP.entranceZ + 4
+  if (mode === 'ramp' || (mode === 'ground' && rampNear && y > 1.2)) return ramp.point
+  if (mode === 'air' && ramp.dist2 + 40 < roadDistance2(x, y, z, road)) return ramp.point
+  return road
+}
+
+function roadDistance2(x: number, y: number, z: number, road: CoursePoint): number {
+  return (road.x - x) ** 2 + (road.y - y) ** 2 + (road.z - z) ** 2
+}
+
+function nearestRamp(x: number, y: number, z: number): { point: CoursePoint; dist2: number } {
+  const samples = Array.from({ length: 33 }, (_, index) => (RAMP.launchTheta * index) / 32)
+  return samples.reduce((best, theta) => {
+    const sample = sampleRamp(theta, 0)
+    const dist2 = (sample.x - x) ** 2 + (sample.y - y) ** 2 + (sample.z - z) ** 2
+    if (dist2 >= best.dist2) return best
+    return {
+      dist2,
+      point: {
+        x: sample.x,
+        y: sample.y,
+        z: sample.z,
+        fx: sample.tx,
+        fy: sample.ty,
+        fz: sample.tz,
+        theta,
+      },
+    }
+  }, { dist2: Infinity, point: {
+    x: 0, y: 0, z: 0, fx: 0, fy: 0, fz: -1, theta: 0,
+  } })
+}
+
+function horizontalForward(course: CoursePoint): { x: number; z: number } {
+  const span = Math.hypot(course.fx, course.fz)
+  if (span < 0.35) {
+    const returning = course.theta !== null && course.theta > Math.PI / 2
+    return { x: 0, z: returning ? 1 : -1 }
+  }
+  return { x: course.fx / span, z: course.fz / span }
+}
+
+function courseAhead(course: CoursePoint, distance: number): Vec3 {
+  if (course.theta === null) {
+    return {
+      x: course.x + course.fx * distance,
+      y: course.y,
+      z: course.z + course.fz * distance,
+    }
+  }
+  const theta = Math.min(RAMP.launchTheta, course.theta + distance / RAMP.radius)
+  if (theta > course.theta + 0.04) {
+    const sample = sampleRamp(theta, 0)
+    return { x: sample.x, y: sample.y, z: sample.z }
+  }
+  const flat = horizontalForward(course)
+  return {
+    x: course.x + flat.x * distance,
+    y: course.y,
+    z: course.z + flat.z * distance,
+  }
+}
+
+function pullTowardCourse(
+  camera: Vec3,
+  look: Vec3,
+  car: Vec3,
+  course: Vec3,
+): { x: number; z: number } {
+  const steps = Array.from({ length: 9 }, (_, index) => index / 8)
+  const choice = steps.reduce((best, step) => {
+    const x = look.x + (course.x - look.x) * step
+    const z = look.z + (course.z - look.z) * step
+    const candidate = { x, y: look.y, z }
+    if (!isPointInView(camera, candidate, car)) return best
+    const courseIn = isPointInView(camera, candidate, course)
+    const score = (courseIn ? 2 : 0) + (1 - step)
+    if (score <= best.score) return best
+    return { score, x, z }
+  }, { score: -1, x: look.x, z: look.z })
+  return { x: choice.x, z: choice.z }
 }
 
 /** 路面中线和环坡中线，供灯带与“赛道是否还在画面里”共用。 */

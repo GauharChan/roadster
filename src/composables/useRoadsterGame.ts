@@ -14,7 +14,7 @@ import {
 import { createCar, loadRoadster, type CarRig } from '../game/createCar'
 import { createStage } from '../game/createScene'
 import { type GameController, type GameHudState } from '../game/context'
-import { frameFlightCamera } from '../game/flightFrame'
+import { frameCourseCamera } from '../game/flightFrame'
 import { courseHintLayout, fitCourseHint, type PxRect } from '../game/flightFrame'
 import { idleNotice, climbLabel, showMoment, tickMoment, type MomentNotice } from '../game/hudCue'
 import { createThrusters, type ThrusterEmit } from '../game/thrusters'
@@ -147,7 +147,6 @@ function mountGame(
   renderer.domElement.setAttribute('aria-hidden', 'true')
   element.appendChild(renderer.domElement)
 
-  const heading = new Vector3(0, 0, -1)
   const desired = new Vector3()
   const look = new Vector3(state.x, 1.2, state.z)
   const lookTarget = new Vector3()
@@ -193,7 +192,6 @@ function mountGame(
     const command = input.sample()
     if (command.reset) {
       resetVehicle(state)
-      heading.set(0, 0, -1)
       notice = showMoment('reset')
       snapCamera = true
     } else {
@@ -263,7 +261,7 @@ function mountGame(
     blob.visible = shadow > 0.03
     const shadowScale = 1 + Math.min(state.y, 10) * 0.12
     blob.scale.setScalar(shadowScale)
-    updateCamera(camera, state, heading, desired, look, lookTarget, scratch, dt, snapCamera)
+    updateCamera(camera, state, desired, look, lookTarget, dt, snapCamera)
     snapCamera = false
     const placed = courseHintLayout(
       camera.position,
@@ -340,44 +338,22 @@ function readHudZones(): { help: PxRect | null; title: PxRect | null; reset: PxR
 function updateCamera(
   camera: { position: Vector3; up?: Vector3; lookAt: (target: Vector3) => void },
   state: VehicleState,
-  heading: Vector3,
   desired: Vector3,
   look: Vector3,
   lookTarget: Vector3,
-  scratch: Vector3,
   dt: number,
   snap: boolean,
 ): void {
-  const planar = Math.hypot(state.vx, state.vz)
-  if (planar > 6) {
-    scratch.set(state.vx / planar, 0, state.vz / planar)
-    heading.lerp(scratch, 1 - Math.exp(-2.4 * dt)).normalize()
-  }
-  if (state.mode === 'air') {
-    const frame = frameFlightCamera({
-      x: state.x,
-      y: state.y,
-      z: state.z,
-      headingX: heading.x,
-      headingZ: heading.z,
-    })
-    desired.set(frame.cameraX, frame.cameraY, frame.cameraZ)
-    lookTarget.set(frame.lookX, frame.lookY, frame.lookZ)
-  } else {
-    const distance = 12 + Math.min(state.y, 42) * 0.28
-    const side = 3.4
-    desired.set(
-      state.x - heading.x * distance - heading.z * side,
-      Math.max(1.8, state.y * 0.38 + 3.5 + Math.min(state.y, 36) * 0.12),
-      state.z - heading.z * distance + heading.x * side,
-    )
-    lookTarget.set(
-      state.x + heading.x * 8,
-      state.y + 1.15,
-      state.z + heading.z * 8,
-    )
-  }
-  const blend = snap ? 1 : 1 - Math.exp(-3.4 * dt)
+  const frame = frameCourseCamera({
+    x: state.x,
+    y: state.y,
+    z: state.z,
+    mode: state.mode,
+  })
+  desired.set(frame.cameraX, frame.cameraY, frame.cameraZ)
+  lookTarget.set(frame.lookX, frame.lookY, frame.lookZ)
+  // 朝向已经锁在赛道上，不再跟车头。机位要跟上位置，车才不会在转向时甩出画面。
+  const blend = snap ? 1 : 1 - Math.exp(-14 * dt)
   camera.position.lerp(desired, blend)
   look.lerp(lookTarget, blend)
   if (state.mode === 'air') {
