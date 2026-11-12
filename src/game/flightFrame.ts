@@ -29,6 +29,43 @@ const CHASE_SIDE = 3.4
 const CAMERA_LIFT = 3.2
 const LOOK_AHEAD = 8
 const LOOK_LIFT = 1.15
+const MIN_BACK = 8
+const MAX_LAG = 8
+const MAX_BACK = CHASE_BACK + MAX_LAG
+const MAX_DROP = 5.5
+const MAX_SIDE = 6
+const AIM_LIFT = 0.9
+/** 画面四边各留约 10%。NDC 从 -1 到 1，内侧即 ±0.8。 */
+const SAFE_INSET = 0.1
+const SAFE_NDC = 1 - SAFE_INSET * 2
+const ROAD_YAW = Math.atan2(-CHASE_SIDE, CHASE_BACK)
+const ROAD_LOOK_X = Math.sin(ROAD_YAW)
+const ROAD_LOOK_Z = -Math.cos(ROAD_YAW)
+
+/**
+ * 车身主体包围盒，取自 Roadster 模型、不含轮子外扩。
+ * 八个角都在安全区内，车身就在安全区内，而不是只剩一只轮子或一个角。
+ */
+const BODY_CORNERS: readonly Vec3[] = [
+  { x: -0.93, y: 0, z: -2.25 },
+  { x: -0.93, y: 0, z: 2.39 },
+  { x: -0.93, y: 1.17, z: -2.25 },
+  { x: -0.93, y: 1.17, z: 2.39 },
+  { x: 0.96, y: 0, z: -2.25 },
+  { x: 0.96, y: 0, z: 2.39 },
+  { x: 0.96, y: 1.17, z: -2.25 },
+  { x: 0.96, y: 1.17, z: 2.39 },
+]
+
+interface Quat {
+  x: number
+  y: number
+  z: number
+  w: number
+}
+
+/** 车头朝世界 -Z、车顶朝上。跟 createVehicle 的初始朝向一致。 */
+const FACING_ROAD: Quat = { x: 0, y: 1, z: 0, w: 0 }
 
 /**
  * 始终从道路前方跟在车后。不按远近改看向坡道还是路面，也不在这两个相反朝向之间过渡。
@@ -49,15 +86,7 @@ export function frameCourseCamera(input: {
   }
 }
 
-const MIN_BACK = 8
-const MAX_DROP = 5.5
-const MAX_SIDE = 6
-
-/**
- * 机位可以落后，视线始终落在车上，所以车不会被甩出画面。
- * 朝向仍固定在道路前方一侧，不改去看坡道的反向。
- */
-export function followCamera(input: {
+export interface FollowInput {
   x: number
   y: number
   z: number
@@ -66,24 +95,173 @@ export function followCamera(input: {
   cameraZ: number
   dt: number
   snap?: boolean
-}): FlightFrame {
+  qx?: number
+  qy?: number
+  qz?: number
+  qw?: number
+  fovDeg?: number
+  aspect?: number
+}
+
+/**
+ * 机位平滑落后，但与目标机位的距离不超过 8 米，沿路最远落到车后 20 米。
+ * 水平朝向锁在道路前方，不跟车头，倒车不掉头。
+ * 这一帧车身若会出 10% 安全区，只把机位朝目标收近，不改水平朝向。
+ */
+export function followCamera(input: FollowInput): FlightFrame {
   const rest = frameCourseCamera(input)
   const blend = input.snap ? 1 : 1 - Math.exp(-3.4 * input.dt)
-  let cameraX = input.cameraX + (rest.cameraX - input.cameraX) * blend
-  let cameraY = input.cameraY + (rest.cameraY - input.cameraY) * blend
-  let cameraZ = input.cameraZ + (rest.cameraZ - input.cameraZ) * blend
-  if (cameraZ < input.z + MIN_BACK) cameraZ = input.z + MIN_BACK
-  if (cameraY < input.y - MAX_DROP) cameraY = input.y - MAX_DROP
-  if (cameraX < input.x - MAX_SIDE) cameraX = input.x - MAX_SIDE
-  if (cameraX > input.x + CHASE_SIDE + MAX_SIDE) cameraX = input.x + CHASE_SIDE + MAX_SIDE
-  return {
-    cameraX,
-    cameraY,
-    cameraZ,
-    lookX: input.x,
-    lookY: input.y + 0.9,
-    lookZ: input.z,
+  const lagged = limitLag({
+    cameraX: input.cameraX + (rest.cameraX - input.cameraX) * blend,
+    cameraY: input.cameraY + (rest.cameraY - input.cameraY) * blend,
+    cameraZ: input.cameraZ + (rest.cameraZ - input.cameraZ) * blend,
+  }, rest, input)
+  const pose = tightenLag(rest, lagged, input)
+  const look = aimLook(pose, input)
+  return { ...pose, ...look }
+}
+
+/** 车身八个角在当前镜头下的 NDC。x/y 为 -1 到 1，depth 为镜头前方距离。 */
+export function carBodyNdc(
+  frame: FlightFrame,
+  car: { x: number; y: number; z: number; qx?: number; qy?: number; qz?: number; qw?: number },
+  fovDeg = VIEW_FOV_DEG,
+  aspect = 16 / 9,
+): Array<{ x: number; y: number; depth: number }> {
+  const quat = quatOf(car)
+  return BODY_CORNERS.map((corner) => projectNdc(frame, addVec(car, rotateQuat(quat, corner)), fovDeg, aspect))
+}
+
+/** 车身八个角都落在四边 10% 以内，且在镜头前方。 */
+export function carBodyInSafeInset(
+  frame: FlightFrame,
+  car: { x: number; y: number; z: number; qx?: number; qy?: number; qz?: number; qw?: number },
+  fovDeg = VIEW_FOV_DEG,
+  aspect = 16 / 9,
+): boolean {
+  return carBodyNdc(frame, car, fovDeg, aspect).every((ndc) => (
+    ndc.depth > 0.2 && Math.abs(ndc.x) <= SAFE_NDC && Math.abs(ndc.y) <= SAFE_NDC
+  ))
+}
+
+function limitLag(
+  pose: { cameraX: number; cameraY: number; cameraZ: number },
+  rest: FlightFrame,
+  car: { x: number; y: number; z: number },
+): { cameraX: number; cameraY: number; cameraZ: number } {
+  let cameraX = pose.cameraX
+  let cameraY = pose.cameraY
+  let cameraZ = pose.cameraZ
+  if (cameraZ < car.z + MIN_BACK) cameraZ = car.z + MIN_BACK
+  if (cameraZ > car.z + MAX_BACK) cameraZ = car.z + MAX_BACK
+  if (cameraY < car.y - MAX_DROP) cameraY = car.y - MAX_DROP
+  if (cameraX < car.x - MAX_SIDE) cameraX = car.x - MAX_SIDE
+  if (cameraX > car.x + CHASE_SIDE + MAX_SIDE) cameraX = car.x + CHASE_SIDE + MAX_SIDE
+  const dx = cameraX - rest.cameraX
+  const dy = cameraY - rest.cameraY
+  const dz = cameraZ - rest.cameraZ
+  const dist = Math.hypot(dx, dy, dz)
+  if (dist > MAX_LAG) {
+    const scale = MAX_LAG / dist
+    cameraX = rest.cameraX + dx * scale
+    cameraY = rest.cameraY + dy * scale
+    cameraZ = rest.cameraZ + dz * scale
   }
+  return { cameraX, cameraY, cameraZ }
+}
+
+function tightenLag(
+  rest: FlightFrame,
+  lagged: { cameraX: number; cameraY: number; cameraZ: number },
+  input: FollowInput,
+): { cameraX: number; cameraY: number; cameraZ: number } {
+  const fov = input.fovDeg ?? VIEW_FOV_DEG
+  const aspect = input.aspect ?? 16 / 9
+  const at = (scale: number) => ({
+    cameraX: rest.cameraX + (lagged.cameraX - rest.cameraX) * scale,
+    cameraY: rest.cameraY + (lagged.cameraY - rest.cameraY) * scale,
+    cameraZ: rest.cameraZ + (lagged.cameraZ - rest.cameraZ) * scale,
+  })
+  const fits = (scale: number) => {
+    const pose = at(scale)
+    return carBodyInSafeInset({ ...pose, ...aimLook(pose, input) }, input, fov, aspect)
+  }
+  const scale = Array.from({ length: 25 }, (_, index) => 1 - index / 24).find((value) => fits(value)) ?? 0
+  return at(scale)
+}
+
+/** 俯仰看向车身，水平分量始终是道路前方，不随本帧收紧而改。 */
+function aimLook(
+  pose: { cameraX: number; cameraY: number; cameraZ: number },
+  car: { x: number; y: number; z: number },
+): { lookX: number; lookY: number; lookZ: number } {
+  const along = (car.x - pose.cameraX) * ROAD_LOOK_X + (car.z - pose.cameraZ) * ROAD_LOOK_Z
+  const depth = Math.max(along, 6)
+  return {
+    lookX: pose.cameraX + ROAD_LOOK_X * depth,
+    lookY: car.y + AIM_LIFT,
+    lookZ: pose.cameraZ + ROAD_LOOK_Z * depth,
+  }
+}
+
+function projectNdc(
+  frame: FlightFrame,
+  point: Vec3,
+  fovDeg: number,
+  aspect: number,
+): { x: number; y: number; depth: number } {
+  const fx = frame.lookX - frame.cameraX
+  const fy = frame.lookY - frame.cameraY
+  const fz = frame.lookZ - frame.cameraZ
+  const fl = Math.hypot(fx, fy, fz) || 1
+  const forward = { x: fx / fl, y: fy / fl, z: fz / fl }
+  const up = { x: 0, y: 1, z: 0 }
+  let right = cross(forward, up)
+  let span = Math.hypot(right.x, right.y, right.z)
+  if (span < 1e-6) {
+    right = { x: 1, y: 0, z: 0 }
+    span = 1
+  }
+  right = { x: right.x / span, y: right.y / span, z: right.z / span }
+  const camUp = cross({ x: -forward.x, y: -forward.y, z: -forward.z }, right)
+  const vx = point.x - frame.cameraX
+  const vy = point.y - frame.cameraY
+  const vz = point.z - frame.cameraZ
+  const depth = vx * forward.x + vy * forward.y + vz * forward.z
+  const cx = vx * right.x + vy * right.y + vz * right.z
+  const cy = vx * camUp.x + vy * camUp.y + vz * camUp.z
+  const half = Math.tan((fovDeg * Math.PI) / 360)
+  const denom = depth * half || 1e-6
+  return { x: cx / (denom * aspect), y: cy / denom, depth }
+}
+
+function quatOf(input: { qx?: number; qy?: number; qz?: number; qw?: number }): Quat {
+  if (input.qw === undefined) return FACING_ROAD
+  return { x: input.qx ?? 0, y: input.qy ?? 0, z: input.qz ?? 0, w: input.qw }
+}
+
+function rotateQuat(quat: Quat, v: Vec3): Vec3 {
+  const ix = quat.w * v.x + quat.y * v.z - quat.z * v.y
+  const iy = quat.w * v.y + quat.z * v.x - quat.x * v.z
+  const iz = quat.w * v.z + quat.x * v.y - quat.y * v.x
+  const iw = -quat.x * v.x - quat.y * v.y - quat.z * v.z
+  return {
+    x: ix * quat.w + iw * -quat.x + iy * -quat.z - iz * -quat.y,
+    y: iy * quat.w + iw * -quat.y + iz * -quat.x - ix * -quat.z,
+    z: iz * quat.w + iw * -quat.z + ix * -quat.y - iy * -quat.x,
+  }
+}
+
+function cross(a: Vec3, b: Vec3): Vec3 {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  }
+}
+
+function addVec(a: { x: number; y: number; z: number }, b: Vec3): Vec3 {
+  return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }
 }
 
 /** 路面中线和环坡中线，供灯带与“赛道是否还在画面里”共用。 */

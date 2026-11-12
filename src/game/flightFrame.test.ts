@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { createVehicle } from './vehicle'
+import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
+import { createPilot } from '../../scripts/flightPilot'
+import { createVehicle, stepVehicle, type VehicleState } from './vehicle'
 import { sampleRamp } from './ramp'
 import {
   FIELD_HOME,
   HINT_COLOR,
   VIEW_FOV_DEG,
   courseMarkers,
+  carBodyInSafeInset,
+  carBodyNdc,
   followCamera,
   frameCourseCamera,
   courseHintLayout,
@@ -97,7 +101,7 @@ describe('一条跟随镜头', () => {
     })
     yaws.slice(1).forEach((yaw, index) => {
       const gap = Math.abs(yaw - (yaws[index] ?? yaw))
-      expect(Math.min(gap, 360 - gap)).toBeLessThan(50)
+      expect(Math.min(gap, 360 - gap)).toBeLessThan(30)
     })
   })
 
@@ -116,6 +120,226 @@ describe('一条跟随镜头', () => {
     expect(spawned.x).toBe(FIELD_HOME.x)
     expect(spawned.z).toBe(FIELD_HOME.z)
     expect(courseMarkers().some((marker) => Math.abs(marker.z - spawned.z) < 8)).toBe(true)
+  })
+})
+
+describe('滞后上限和安全区', () => {
+  const aspect = 1280 / 720
+
+  function lagFromRest(frame: FlightFrame, car: { x: number; y: number; z: number }): number {
+    const rest = frameCourseCamera(car)
+    return Math.hypot(frame.cameraX - rest.cameraX, frame.cameraY - rest.cameraY, frame.cameraZ - rest.cameraZ)
+  }
+
+  function yawGap(a: number, b: number): number {
+    const gap = Math.abs(a - b)
+    return Math.min(gap, 360 - gap)
+  }
+
+  function poseOf(state: VehicleState) {
+    return {
+      x: state.x,
+      y: state.y,
+      z: state.z,
+      qx: state.qx,
+      qy: state.qy,
+      qz: state.qz,
+      qw: state.qw,
+    }
+  }
+
+  it('单帧把超过 8 米的落后夹回目标机位，沿路不远于 20 米、不近于 8 米', () => {
+    const car = { x: 2, y: 6, z: -10, qx: 0, qy: 1, qz: 0, qw: 0 }
+    const rest = frameCourseCamera(car)
+    const frame = followCamera({
+      ...car,
+      cameraX: rest.cameraX + 4,
+      cameraY: rest.cameraY - 9,
+      cameraZ: rest.cameraZ + 23,
+      dt: 0.016,
+      aspect,
+    })
+    expect(lagFromRest(frame, car)).toBeLessThanOrEqual(8 + 1e-6)
+    expect(frame.cameraZ).toBeLessThanOrEqual(car.z + 20 + 1e-6)
+    expect(frame.cameraZ).toBeGreaterThanOrEqual(car.z + 8 - 1e-6)
+    expect(frame.cameraY).toBeGreaterThanOrEqual(car.y - 5.5 - 1e-6)
+    expect(Math.abs(frame.cameraX - car.x)).toBeLessThanOrEqual(3.4 + 6 + 1e-6)
+    expect(carBodyInSafeInset(frame, car, VIEW_FOV_DEG, aspect)).toBe(true)
+  })
+
+  it('贴得太近时仍停在车后 8 米', () => {
+    const car = { x: 0, y: 0, z: 30 }
+    const frame = followCamera({
+      ...car,
+      cameraX: 3.4,
+      cameraY: 3.2,
+      cameraZ: car.z + 2,
+      dt: 0.016,
+      snap: true,
+    })
+    expect(frame.cameraZ).toBeGreaterThanOrEqual(car.z + 8 - 1e-6)
+    expect(lagFromRest(frame, car)).toBeLessThanOrEqual(8 + 1e-6)
+  })
+
+  it('倒车、车头调头时水平朝向仍锁在道路前方，单帧变化小于 30 度', () => {
+    const car = createVehicle()
+    let camera = { x: car.x + 3.4, y: car.y + 3.2, z: car.z + 12 }
+    const yaws: number[] = []
+    const samples = [
+      { ...poseOf(car), note: 'start' },
+      { x: 6, y: 0, z: 36, qx: 0, qy: 0.7, qz: 0, qw: 0.7 },
+      { x: 6, y: 0, z: 48, qx: 0, qy: 0, qz: 0, qw: 1 },
+      { x: -4, y: 1, z: 55, qx: 0, qy: 0, qz: 0, qw: 1 },
+      { x: 0, y: 18, z: -12, qx: car.qx, qy: car.qy, qz: car.qz, qw: car.qw },
+    ]
+    samples.forEach((sample) => {
+      const frame = followCamera({
+        ...sample,
+        cameraX: camera.x,
+        cameraY: camera.y,
+        cameraZ: camera.z,
+        dt: 0.033,
+        aspect,
+      })
+      yaws.push(cameraYaw(frame))
+      expect(frame.lookZ).toBeLessThan(frame.cameraZ)
+      expect(carBodyInSafeInset(frame, sample, VIEW_FOV_DEG, aspect)).toBe(true)
+      camera = { x: frame.cameraX, y: frame.cameraY, z: frame.cameraZ }
+    })
+    yaws.slice(1).forEach((yaw, index) => {
+      expect(yawGap(yaw, yaws[index] ?? yaw)).toBeLessThan(30)
+    })
+    yaws.forEach((yaw) => {
+      expect(yawGap(yaw, yaws[0] ?? yaw)).toBeLessThan(0.05)
+      expect(Math.abs(yaw)).toBeLessThan(25)
+    })
+    expect(yaws[0] ?? 0).toBeLessThan(0)
+  })
+
+  it('极端落后时当帧只收机位，水平朝向不变', () => {
+    const car = { x: 0, y: 4, z: 10, qx: 0, qy: 1, qz: 0, qw: 0 }
+    const before = followCamera({
+      ...car,
+      cameraX: car.x + 9.4,
+      cameraY: car.y + 3.2,
+      cameraZ: car.z + 8,
+      dt: 0.001,
+      aspect,
+    })
+    const held = followCamera({
+      ...car,
+      cameraX: before.cameraX,
+      cameraY: before.cameraY,
+      cameraZ: before.cameraZ,
+      dt: 0.001,
+      aspect,
+    })
+    expect(yawGap(cameraYaw(before), cameraYaw(held))).toBeLessThan(0.05)
+    expect(carBodyInSafeInset(before, car, VIEW_FOV_DEG, aspect)).toBe(true)
+    const rest = frameCourseCamera(car)
+    const raw = Math.hypot(9.4 - rest.cameraX, 0, (car.z + 8) - rest.cameraZ)
+    const used = lagFromRest(before, car)
+    if (raw > 0.5) expect(used).toBeLessThan(raw - 0.05)
+  })
+
+  it('车身投影与 three.js 透视相机一致', () => {
+    const state = createVehicle()
+    const frame = followCamera({
+      ...poseOf(state),
+      cameraX: 8,
+      cameraY: 7,
+      cameraZ: 70,
+      dt: 0.016,
+      aspect,
+    })
+    const camera = new PerspectiveCamera(VIEW_FOV_DEG, aspect, 0.1, 500)
+    camera.position.set(frame.cameraX, frame.cameraY, frame.cameraZ)
+    camera.up.set(0, 1, 0)
+    camera.lookAt(frame.lookX, frame.lookY, frame.lookZ)
+    camera.updateProjectionMatrix()
+    camera.updateMatrixWorld(true)
+    const quat = new Quaternion(state.qx, state.qy, state.qz, state.qw)
+    const locals = [
+      [-0.93, 0, -2.25],
+      [-0.93, 0, 2.39],
+      [-0.93, 1.17, -2.25],
+      [-0.93, 1.17, 2.39],
+      [0.96, 0, -2.25],
+      [0.96, 0, 2.39],
+      [0.96, 1.17, -2.25],
+      [0.96, 1.17, 2.39],
+    ]
+    const ndc = carBodyNdc(frame, state, VIEW_FOV_DEG, aspect)
+    locals.forEach((local, index) => {
+      const world = new Vector3(local[0], local[1], local[2]).applyQuaternion(quat).add(new Vector3(state.x, state.y, state.z))
+      const projected = world.project(camera)
+      expect(ndc[index]?.x).toBeCloseTo(projected.x, 4)
+      expect(ndc[index]?.y).toBeCloseTo(projected.y, 4)
+    })
+  })
+
+  it('高速冲坡和喷气起飞时车身留在 10% 安全区，朝向不硬切', () => {
+    const state = createVehicle()
+    const pilot = createPilot()
+    let camera = { x: state.x + 3.4, y: 4, z: state.z + 18 }
+    const dt = 1 / 60
+    let elapsed = 0
+    let yawPrev: number | null = null
+    let maxYawGap = 0
+    let maxLag = 0
+    let sawFastRamp = false
+    let sawThrust = false
+    let maxAbsNdc = 0
+    let maxRampSpeed = 0
+    let landed = false
+    let sawReverse = false
+    let reachedRamp = false
+    const summary: string[] = []
+
+    Array.from({ length: Math.round(45 / dt) }, () => 0).forEach(() => {
+      const input = pilot(state, elapsed)
+      stepVehicle(state, input, dt)
+      const frame = followCamera({
+        ...poseOf(state),
+        cameraX: camera.x,
+        cameraY: camera.y,
+        cameraZ: camera.z,
+        dt,
+        fovDeg: VIEW_FOV_DEG,
+        aspect,
+      })
+      const yaw = cameraYaw(frame)
+      if (yawPrev !== null) maxYawGap = Math.max(maxYawGap, yawGap(yaw, yawPrev))
+      yawPrev = yaw
+      maxLag = Math.max(maxLag, lagFromRest(frame, state))
+      const ndc = carBodyNdc(frame, state, VIEW_FOV_DEG, aspect)
+      ndc.forEach((corner) => {
+        maxAbsNdc = Math.max(maxAbsNdc, Math.abs(corner.x), Math.abs(corner.y))
+      })
+      const speed = Math.hypot(state.vx, state.vy, state.vz)
+      if (state.mode === 'ground' && state.vz > 2 && !reachedRamp) sawReverse = true
+      if (state.mode === 'ramp' || state.mode === 'air') reachedRamp = true
+      if (state.mode === 'ramp') maxRampSpeed = Math.max(maxRampSpeed, speed)
+      if (state.mode === 'ramp' && speed >= 39) sawFastRamp = true
+      if (state.mode === 'air' && input.thrust && state.y > 8) sawThrust = true
+      if (state.mode === 'ground' && state.y <= 0.05 && elapsed > 5 && (state.event === 'land' || state.event === 'recover')) {
+        landed = true
+      }
+      if (maxYawGap >= 30 || maxLag > 8.01 || !carBodyInSafeInset(frame, state, VIEW_FOV_DEG, aspect)) {
+        summary.push(`${elapsed.toFixed(2)}s mode=${state.mode} y=${state.y.toFixed(1)} lag=${maxLag.toFixed(2)} yawΔ=${maxYawGap.toFixed(2)} ndc=${maxAbsNdc.toFixed(3)}`)
+      }
+      camera = { x: frame.cameraX, y: frame.cameraY, z: frame.cameraZ }
+      elapsed += dt
+    })
+
+    expect(summary, summary.join('\n')).toEqual([])
+    expect(sawReverse, '倒车发生在上坡之前').toBe(true)
+    expect(sawFastRamp, `ramp speed ${maxRampSpeed.toFixed(1)}`).toBe(true)
+    expect(sawThrust).toBe(true)
+    expect(landed, `mode=${state.mode} y=${state.y.toFixed(1)} vy=${state.vy.toFixed(1)} t=${elapsed.toFixed(1)}`).toBe(true)
+    expect(maxYawGap).toBeLessThan(30)
+    expect(maxLag).toBeLessThanOrEqual(8 + 1e-6)
+    expect(maxAbsNdc).toBeLessThanOrEqual(0.8 + 1e-4)
   })
 })
 
