@@ -209,9 +209,9 @@ async function readStatus(page) {
       const landed = log.some((frame) => frame.event === 'land' || frame.event === 'recover')
       const shots = {
         turn: log.some((frame) => frame.mode === 'ground' && frame.z > 30 && Math.abs(Math.atan2(frame.vx, -frame.vz)) > 0.35),
-        coast: log.some((frame) => frame.mode === 'ground' && frame.vz < -12 && frame.z < 40 && frame.z > 8),
+        coast: log.some((frame) => frame.mode === 'ground' && frame.z > 42 && frame.vz < -8 && log.some((earlier) => earlier.vz > 2)),
         'air-enter': log.some((frame) => frame.mode === 'air'),
-        thrust: log.some((frame) => frame.mode === 'air' && frame.thrust && frame.y > 8),
+        thrust: log.some((frame) => frame.mode === 'air' && frame.thrust && frame.y > 28),
         land: landed,
       }
       return {
