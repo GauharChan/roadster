@@ -13,6 +13,7 @@ import {
   Scene,
   SRGBColorSpace,
   Vector3,
+  BackSide,
   BoxGeometry,
   CylinderGeometry,
   SphereGeometry,
@@ -24,6 +25,7 @@ import {
   PointsMaterial,
   Object3D,
 } from 'three'
+import { VIEW_FOV_DEG } from './flightFrame'
 import { RAMP, sampleRamp } from './ramp'
 
 export interface Stage {
@@ -35,13 +37,16 @@ const SEGMENTS = 56
 
 export function createStage(): Stage {
   const scene = new Scene()
-  scene.background = new Color('#07080c')
-  scene.fog = new FogExp2('#07080c', 0.0085)
+  scene.background = new Color('#10151c')
+  scene.fog = new FogExp2('#141a22', 0.0052)
 
-  const camera = new PerspectiveCamera(48, 1, 0.1, 500)
+  const camera = new PerspectiveCamera(VIEW_FOV_DEG, 1, 0.1, 500)
   camera.position.set(8, 7, 64)
 
+  scene.add(createSky())
   scene.add(createGround())
+  scene.add(createRoad())
+  scene.add(createCourseRibbon())
   scene.add(createMarkings())
   scene.add(createRamp())
   scene.add(createLamps())
@@ -55,8 +60,8 @@ export function createStage(): Stage {
 function createGround(): Mesh {
   const geometry = new BoxGeometry(460, 1, 460)
   const material = new MeshStandardMaterial({
-    color: '#1a1d24',
-    map: grainTexture('#1a1d24', 18, 24, 24),
+    color: '#3a424c',
+    map: grainTexture('#3a424c', 12, 24, 24),
     roughness: 0.94,
     metalness: 0.04,
   })
@@ -65,25 +70,52 @@ function createGround(): Mesh {
   return mesh
 }
 
+function createRoad(): Group {
+  const group = new Group()
+  group.name = 'road-surface'
+  const shoulder = new Mesh(
+    new BoxGeometry(26, 0.04, 118),
+    new MeshStandardMaterial({
+      color: '#4a545f',
+      map: grainTexture('#4a545f', 8, 3, 8),
+      roughness: 0.96,
+      metalness: 0.02,
+    }),
+  )
+  shoulder.position.set(0, 0.02, 30)
+  const lane = new Mesh(
+    new BoxGeometry(11, 0.04, 118),
+    new MeshStandardMaterial({
+      color: '#5c6774',
+      map: grainTexture('#5c6774', 10, 2, 10),
+      roughness: 0.9,
+      metalness: 0.03,
+    }),
+  )
+  lane.position.set(0, 0.045, 30)
+  group.add(shoulder, lane)
+  return group
+}
+
 function createMarkings(): Group {
   const group = new Group()
-  const paint = new MeshBasicMaterial({ color: '#f3f1ec', toneMapped: false })
+  const paint = new MeshStandardMaterial({ color: '#7b848e', roughness: 0.82, metalness: 0.02 })
   const edge = new BoxGeometry(0.14, 0.02, 78)
   ;[-3.4, 3.4].forEach((x) => {
     const line = new Mesh(edge, paint)
-    line.position.set(x, 0.02, 42)
+    line.position.set(x, 0.09, 42)
     group.add(line)
   })
 
   const dash = new BoxGeometry(0.12, 0.02, 2.1)
   Array.from({ length: 15 }, (_, index) => {
     const mark = new Mesh(dash, paint)
-    mark.position.set(0, 0.02, 8 + index * 4.6)
+    mark.position.set(0, 0.09, 8 + index * 4.6)
     group.add(mark)
   })
 
   const cross = new Mesh(new BoxGeometry(46, 0.02, 0.12), paint)
-  cross.position.set(0, 0.02, 28)
+  cross.position.set(0, 0.09, 28)
   group.add(cross)
   return group
 }
@@ -101,11 +133,11 @@ function createRamp(): Group {
 
   const stripe = new Mesh(
     ribbonGeometry(-0.14, 0.14, 0.04),
-    new MeshBasicMaterial({ color: '#f4f2ec', toneMapped: false }),
+    new MeshStandardMaterial({ color: '#8b939c', roughness: 0.78, metalness: 0.02 }),
   )
   group.add(stripe)
 
-  const edgeMaterial = new MeshBasicMaterial({ color: '#ff2a24', toneMapped: false })
+  const edgeMaterial = new MeshStandardMaterial({ color: '#6a403c', roughness: 0.7, metalness: 0.04 })
   const edge = RAMP.halfWidth
   group.add(new Mesh(ribbonGeometry(edge - 0.42, edge, 0.06), edgeMaterial))
   group.add(new Mesh(ribbonGeometry(-edge, -edge + 0.42, 0.06), edgeMaterial))
@@ -280,8 +312,13 @@ function addTruss(group: Group): void {
 
 function createLamps(): Group {
   const group = new Group()
-  const glow = new MeshBasicMaterial({ color: '#ff2a24', toneMapped: false })
-  const bulb = new SphereGeometry(0.18, 10, 8)
+  const glow = new MeshStandardMaterial({
+    color: '#5c3836',
+    emissive: '#3a2422',
+    emissiveIntensity: 0.35,
+    roughness: 0.6,
+  })
+  const bulb = new SphereGeometry(0.1, 10, 8)
   Array.from({ length: 16 }, (_, index) => {
     const lamp = new Mesh(bulb, glow)
     lamp.position.set(15.5, 0.28, 8 + index * 3.1)
@@ -332,9 +369,96 @@ function createStars(): Points {
   return new Points(geometry, material)
 }
 
+function createSky(): Mesh {
+  const canvas = document.createElement('canvas')
+  canvas.width = 8
+  canvas.height = 256
+  const context = canvas.getContext('2d')
+  const texture = new CanvasTexture(canvas)
+  texture.colorSpace = SRGBColorSpace
+  if (context) {
+    const paint = context.createLinearGradient(0, 0, 0, 256)
+    paint.addColorStop(0, '#07090d')
+    paint.addColorStop(0.34, '#121820')
+    paint.addColorStop(0.48, '#3a4658')
+    paint.addColorStop(0.58, '#1c2430')
+    paint.addColorStop(1, '#10141a')
+    context.fillStyle = paint
+    context.fillRect(0, 0, 8, 256)
+    texture.needsUpdate = true
+  }
+  const sky = new Mesh(
+    new SphereGeometry(420, 24, 16),
+    new MeshBasicMaterial({ map: texture, side: BackSide, fog: false, depthWrite: false, toneMapped: false }),
+  )
+  sky.name = 'sky-depth'
+  sky.frustumCulled = false
+  sky.renderOrder = -1
+  return sky
+}
+
+function createCourseRibbon(): Group {
+  const group = new Group()
+  group.name = 'course-ribbon'
+  const strip = new MeshStandardMaterial({ color: '#9aa3ad', roughness: 0.55, metalness: 0.04 })
+  const studMaterial = new MeshStandardMaterial({
+    color: '#c5ccd4',
+    emissive: '#8e98a3',
+    emissiveIntensity: 0.25,
+    roughness: 0.45,
+  })
+  const road = new Mesh(new BoxGeometry(0.22, 0.03, 92), strip)
+  road.position.set(0, 0.12, 38)
+  group.add(road)
+  group.add(new Mesh(rampRibbonGeometry(), strip))
+
+  const stud = new SphereGeometry(0.07, 8, 6)
+  Array.from({ length: 18 }, (_, index) => {
+    const lamp = new Mesh(stud, studMaterial)
+    lamp.position.set(0, 0.22, 86 - index * 5)
+    group.add(lamp)
+  })
+  Array.from({ length: 20 }, (_, index) => {
+    const sample = sampleRamp((RAMP.launchTheta * index) / 19, 0)
+    const lamp = new Mesh(stud, studMaterial)
+    lamp.position.set(
+      sample.x + sample.ux * 0.28,
+      sample.y + sample.uy * 0.28,
+      sample.z + sample.uz * 0.28,
+    )
+    group.add(lamp)
+  })
+  return group
+}
+
+function rampRibbonGeometry(): BufferGeometry {
+  const positions: number[] = []
+  const indices: number[] = []
+  const segments = 48
+  Array.from({ length: segments + 1 }, (_, index) => {
+    const theta = (RAMP.launchTheta * index) / segments
+    ;[sampleRamp(theta, -0.12), sampleRamp(theta, 0.12)].forEach((point) => {
+      positions.push(
+        point.x + point.ux * 0.07,
+        point.y + point.uy * 0.07,
+        point.z + point.uz * 0.07,
+      )
+    })
+  })
+  Array.from({ length: segments }, (_, index) => {
+    const a = index * 2
+    indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
+  })
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
 function addLights(scene: Scene): void {
-  scene.add(new AmbientLight('#b7c3d4', 0.22))
-  scene.add(new HemisphereLight('#8ea0b8', '#1a140f', 0.4))
+  scene.add(new AmbientLight('#c5d0dc', 0.62))
+  scene.add(new HemisphereLight('#b7c4d4', '#3a4048', 0.85))
   const moon = new DirectionalLight('#d5e2f5', 1.35)
   moon.position.set(40, 70, 24)
   scene.add(moon)

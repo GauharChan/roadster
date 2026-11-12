@@ -161,12 +161,12 @@ function onFlip(event: PointerEvent) {
 }
 
 .thrust {
-  border-color: #ff2d2a;
-  color: #ff2d2a;
+  border-color: #c5ccd4;
+  color: #e7e1d6;
 }
 
 .pad:focus-visible {
-  outline: 2px solid #ff2d2a;
+  outline: 2px solid #c5ccd4;
   outline-offset: 3px;
 }
 </style>

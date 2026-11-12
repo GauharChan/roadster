@@ -11,9 +11,10 @@ const modeLabel = computed(() => {
   return '路面'
 })
 
+const airObjective = computed(() => game.hud.mode === 'air' && !game.hud.stuntDone)
+
 const objective = computed(() => {
   if (game.hud.stuntDone) return '这一轮完成'
-  if (game.hud.mode === 'air') return '按住推进稳住，放平后落地'
   if (game.hud.mode === 'ramp') return '继续往上，冲出坡唇'
   return '加速对准坡道口'
 })
@@ -34,30 +35,50 @@ const objective = computed(() => {
         >Roadster 2020</a>
         · metarex.4d · CC BY 4.0
       </p>
-      <p class="objective">{{ objective }}</p>
+      <p v-if="airObjective" class="objective objective-lines">
+        <span>空格喷气，W/S 调整俯仰，A/D 调整横滚</span>
+        <span>松开空格停止喷气，但车辆仍有惯性</span>
+      </p>
+      <p v-else class="objective">{{ objective }}</p>
       <div class="readout">
         <p class="metric">
           <span class="value">{{ game.hud.speedKmh }}</span>
           <span class="unit">km/h</span>
         </p>
         <p class="metric">
-          <span class="value">{{ game.hud.altitude }}</span>
+          <span class="value" data-altitude>{{ game.hud.altitude }}</span>
           <span class="unit">m</span>
         </p>
         <p class="mode" :class="{ flying: game.hud.mode === 'air' }">{{ modeLabel }}</p>
       </div>
+      <p
+        class="climb"
+        data-climb
+        :class="{ down: game.hud.climb.includes('-') }"
+      >{{ game.hud.climb }}</p>
+      <p class="notice" role="status" aria-live="polite" :data-kind="game.hud.noticeKind">{{ game.hud.notice }}</p>
       <button
         v-if="game.hud.stuntDone"
         type="button"
         class="again"
+        data-action="reset"
         @click="game.requestReset()"
       >
         再来一次
       </button>
     </div>
 
-    <button type="button" class="reset" @click="game.requestReset()">重置</button>
+    <button type="button" class="reset" data-action="reset" @click="game.requestReset()">重置</button>
     <p class="hint">W/S 油门，空中改为俯仰<br>A/D 转向，空中改为横滚<br>空格推进 · F 翻转 · R 重置</p>
+    <div
+      v-if="game.hud.courseHint"
+      class="course-hint"
+      data-course-hint
+      :style="{ left: `${game.hud.courseHint.x}%`, top: `${game.hud.courseHint.y}%` }"
+    >
+      <span class="chevron" :style="{ transform: `rotate(${game.hud.courseHint.angle + 45}deg)` }" />
+      <span>赛道方向</span>
+    </div>
   </header>
 </template>
 
@@ -80,7 +101,7 @@ const objective = computed(() => {
 
 .eyebrow {
   margin: 0;
-  color: #ff2d2a;
+  color: #b7b1a8;
   font-size: 12px;
   letter-spacing: 0.42em;
 }
@@ -117,11 +138,49 @@ const objective = computed(() => {
   color: #e7e1d6;
 }
 
+.objective-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: none;
+}
+
+.objective-lines span {
+  white-space: nowrap;
+}
+
+.notice {
+  min-height: 1.4em;
+  margin: 8px 0 0;
+  color: #e7e1d6;
+  font-size: 18px;
+  letter-spacing: 0.12em;
+}
+
+.notice[data-kind='recover'] {
+  color: #ff2d2a;
+}
+
+.climb {
+  color: #b7b1a8;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.climb:empty {
+  display: none;
+}
+
+.climb.down {
+  color: #9eb6d6;
+}
+
 .again,
 .reset {
   pointer-events: auto;
-  border: 1px solid #ff2d2a;
-  background: rgba(7, 8, 12, 0.72);
+  border: 1px solid #8d939c;
+  background: rgba(16, 18, 24, 0.55);
   color: #e7e1d6;
   font: inherit;
   letter-spacing: 0.14em;
@@ -142,7 +201,7 @@ const objective = computed(() => {
 
 .again:focus-visible,
 .reset:focus-visible {
-  outline: 2px solid #ff2d2a;
+  outline: 2px solid #c5ccd4;
   outline-offset: 3px;
 }
 
@@ -160,6 +219,7 @@ const objective = computed(() => {
   gap: 6px;
   align-items: baseline;
   margin: 0;
+  white-space: nowrap;
 }
 
 .value {
@@ -177,23 +237,46 @@ const objective = computed(() => {
 
 .mode {
   margin: 0;
+  white-space: nowrap;
 }
 
 .flying {
-  color: #ff2d2a;
+  color: #d5dbe3;
 }
 
 .hint {
   position: absolute;
-  bottom: calc(16px + env(safe-area-inset-bottom));
-  left: 50%;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  left: calc(14px + env(safe-area-inset-left));
+  max-width: 15rem;
   margin: 0;
+  padding: 7px 10px;
+  background: rgba(12, 14, 18, 0.42);
   color: #b7b1a8;
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  line-height: 1.55;
-  text-align: center;
-  transform: translateX(-50%);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.course-hint {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: rgba(215, 221, 228, 0.78);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.chevron {
+  width: 9px;
+  height: 9px;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
 }
 
 @media (pointer: coarse) {

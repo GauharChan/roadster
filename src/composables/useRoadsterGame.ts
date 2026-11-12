@@ -14,9 +14,96 @@ import {
 import { createCar, loadRoadster, type CarRig } from '../game/createCar'
 import { createStage } from '../game/createScene'
 import { type GameController, type GameHudState } from '../game/context'
+import {
+  carBodyInSafeInset,
+  carBodyNdc,
+  courseHintLayout,
+  fitCourseHint,
+  followCamera,
+  type PxRect,
+} from '../game/flightFrame'
+import { idleNotice, climbLabel, showMoment, tickMoment, type MomentNotice } from '../game/hudCue'
 import { createThrusters, type ThrusterEmit } from '../game/thrusters'
 import { createVehicle, resetVehicle, stepVehicle, type VehicleState } from '../game/vehicle'
 import { useInput } from './useInput'
+
+declare global {
+  interface Window {
+    __roadsterHold?: boolean
+    __roadsterHint?: boolean
+    __roadsterUpY?: number
+    __roadsterSample?: {
+      perf: number
+      x: number
+      y: number
+      z: number
+      vx: number
+      vy: number
+      vz: number
+      qx: number
+      qy: number
+      qz: number
+      qw: number
+      mode: string
+      event: string
+      upX: number
+      upY: number
+      upZ: number
+      camX: number
+      camY: number
+      camZ: number
+      lookX: number
+      lookY: number
+      lookZ: number
+      hint: boolean
+      hintX: number | null
+      hintY: number | null
+      hintAngle: number | null
+      thrust: boolean
+      reset: boolean
+    }
+    __roadsterFrameLog?: RoadsterFrame[]
+    __roadsterAutopilot?: (
+      state: VehicleState,
+      elapsed: number,
+    ) => { throttle: number; steer: number; thrust: boolean; flip: boolean }
+  }
+}
+
+interface RoadsterFrame {
+  perf: number
+  x: number
+  y: number
+  z: number
+  vx: number
+  vy: number
+  vz: number
+  qx: number
+  qy: number
+  qz: number
+  qw: number
+  mode: string
+  event: string
+  upX: number
+  upY: number
+  upZ: number
+  camX: number
+  camY: number
+  camZ: number
+  lookX: number
+  lookY: number
+  lookZ: number
+  hint: boolean
+  hintX: number | null
+  hintY: number | null
+  hintAngle: number | null
+  thrust: boolean
+  reset: boolean
+  yaw: number
+  bodyInInset: boolean
+  screenX: number
+  screenY: number
+}
 
 export function useRoadsterGame(
   stage: Readonly<ShallowRef<{ root: unknown } | null>>,
@@ -24,8 +111,12 @@ export function useRoadsterGame(
   const hud = reactive<GameHudState>({
     speedKmh: 0,
     altitude: 0,
+    climb: '0',
     mode: 'ground',
     stuntDone: false,
+    notice: '',
+    noticeKind: 'none',
+    courseHint: null,
   })
   const input = useInput()
   let stop = () => {}
@@ -108,15 +199,17 @@ function mountGame(
   renderer.domElement.setAttribute('aria-hidden', 'true')
   element.appendChild(renderer.domElement)
 
-  const heading = new Vector3(0, 0, -1)
   const desired = new Vector3()
   const look = new Vector3(state.x, 1.2, state.z)
   const lookTarget = new Vector3()
   const scratch = new Vector3()
+  let notice: MomentNotice = idleNotice()
+  let snapCamera = false
   const nozzle = new Vector3()
   const up = new Vector3()
   const side = new Vector3()
   let last = performance.now()
+  let pilotTime = 0
 
   const resize = () => {
     const width = element.clientWidth
@@ -143,78 +236,162 @@ function mountGame(
 
   const frame = (now: number) => {
     if (!running) return
+    if (window.__roadsterHold) {
+      requestAnimationFrame(frame)
+      return
+    }
     const dt = Math.min(0.033, (now - last) / 1000)
     last = now
-    const command = input.sample()
-    if (command.reset) {
-      resetVehicle(state)
-      heading.set(0, 0, -1)
-    } else {
-      stepVehicle(state, command, dt)
-    }
+    const autopilot = window.__roadsterAutopilot
+    // 自测时画面一帧很慢，按 1/60 秒把物理和镜头追齐。平时没有挂钩，仍是一帧一步。
+    const steps = autopilot ? Array.from({ length: 24 }, () => 1 / 60) : [dt]
+    steps.forEach((stepDt) => {
+      const sampled = input.sample()
+      const command = autopilot
+        ? { ...autopilot(state, pilotTime), reset: sampled.reset }
+        : sampled
+      if (autopilot) pilotTime += stepDt
+      if (command.reset) {
+        resetVehicle(state)
+        notice = showMoment('reset')
+        snapCamera = true
+      } else {
+        stepVehicle(state, command, stepDt)
+        if (state.event === 'land') notice = showMoment('land')
+        else if (state.event === 'recover') notice = showMoment('recover')
+      }
+      notice = tickMoment(notice, stepDt)
 
-    if (car) {
-      car.root.position.set(state.x, state.y, state.z)
-      car.root.quaternion.set(state.qx, state.qy, state.qz, state.qw)
-      car.wheels.forEach((wheel) => {
-        const axle = typeof wheel.userData.axle === 'number' ? wheel.userData.axle : 0
-        const previous = typeof wheel.userData.roll === 'number' ? wheel.userData.roll : 0
-        const roll = (previous + (state.speed * dt) / 0.36) % (Math.PI * 2)
-        wheel.userData.roll = roll
-        wheel.rotation.x = axle + roll
-      })
-    }
-    const emitting = !command.reset && (command.thrust || state.rollTime > 0)
-    if (car?.belly) car.belly.intensity = emitting ? 900 : 0
-
-    const emits: ThrusterEmit[] = []
-    const rig = car
-    if (emitting && rig) {
-      scratch.set(0, 0, 1).applyQuaternion(rig.root.quaternion)
-      up.set(0, 1, 0).applyQuaternion(rig.root.quaternion)
-      rig.nozzles.forEach(([x, y, z], index) => {
-        const belly = index >= 2
-        const back = belly ? 5 : 18
-        const down = belly ? 24 : 9
-        nozzle.set(x, y, z).applyQuaternion(rig.root.quaternion).add(rig.root.position)
-        emits.push({
-          x: nozzle.x,
-          y: nozzle.y,
-          z: nozzle.z,
-          vx: -scratch.x * back - up.x * down + state.vx * 0.12,
-          vy: -scratch.y * back - up.y * down + state.vy * 0.12,
-          vz: -scratch.z * back - up.z * down + state.vz * 0.12,
-        })
-      })
-      if (state.rollTime > 0) {
-        side.crossVectors(up, scratch)
-        if (side.lengthSq() > 1e-4) side.normalize()
-        ;[-1.15, 1.15].forEach((offset) => {
-          emits.push({
-            x: state.x + side.x * offset,
-            y: state.y + up.y * 0.35 + 0.15,
-            z: state.z + side.z * offset,
-            vx: side.x * offset * 16 - up.x * 8,
-            vy: side.y * offset * 16 - up.y * 8,
-            vz: side.z * offset * 16 - up.z * 8,
-          })
+      if (car) {
+        car.root.position.set(state.x, state.y, state.z)
+        car.root.quaternion.set(state.qx, state.qy, state.qz, state.qw)
+        car.wheels.forEach((wheel) => {
+          const axle = typeof wheel.userData.axle === 'number' ? wheel.userData.axle : 0
+          const previous = typeof wheel.userData.roll === 'number' ? wheel.userData.roll : 0
+          const roll = (previous + (state.speed * stepDt) / 0.36) % (Math.PI * 2)
+          wheel.userData.roll = roll
+          wheel.rotation.x = axle + roll
         })
       }
-    }
-    const burst = state.event === 'land' || state.event === 'recover'
-      ? { x: state.x, y: 0.4, z: state.z }
-      : null
-    const wash = emitting && state.y < 3.2 ? { x: state.x, z: state.z } : null
-    thrusters.update(dt, emits, burst, camera.position, wash)
-    blob.position.x = state.x
-    blob.position.z = state.z
-    const shadow = Math.max(0, 0.42 - state.y / 28)
-    blobMaterial.opacity = shadow
-    blob.visible = shadow > 0.03
-    const shadowScale = 1 + Math.min(state.y, 10) * 0.12
-    blob.scale.setScalar(shadowScale)
-    updateCamera(camera, state, heading, desired, look, lookTarget, scratch, dt)
-    publishHud(hud, state)
+      const emitting = !command.reset && (command.thrust || state.rollTime > 0)
+      if (car?.belly) car.belly.intensity = emitting ? 900 : 0
+
+      const emits: ThrusterEmit[] = []
+      const rig = car
+      if (emitting && rig) {
+        scratch.set(0, 0, 1).applyQuaternion(rig.root.quaternion)
+        up.set(0, 1, 0).applyQuaternion(rig.root.quaternion)
+        rig.nozzles.forEach(([x, y, z], index) => {
+          const belly = index >= 2
+          const back = belly ? 2.4 : 6.5
+          const down = belly ? 7 : 3.2
+          nozzle.set(x, y, z).applyQuaternion(rig.root.quaternion).add(rig.root.position)
+          emits.push({
+            x: nozzle.x,
+            y: nozzle.y,
+            z: nozzle.z,
+            vx: -scratch.x * back - up.x * down + state.vx * 0.12,
+            vy: -scratch.y * back - up.y * down + state.vy * 0.12,
+            vz: -scratch.z * back - up.z * down + state.vz * 0.12,
+          })
+        })
+        if (state.rollTime > 0) {
+          side.crossVectors(up, scratch)
+          if (side.lengthSq() > 1e-4) side.normalize()
+          ;[-1.15, 1.15].forEach((offset) => {
+            emits.push({
+              x: state.x + side.x * offset,
+              y: state.y + up.y * 0.35 + 0.15,
+              z: state.z + side.z * offset,
+              vx: side.x * offset * 16 - up.x * 8,
+              vy: side.y * offset * 16 - up.y * 8,
+              vz: side.z * offset * 16 - up.z * 8,
+            })
+          })
+        }
+      }
+      const burst = state.event === 'land' || state.event === 'recover'
+        ? { x: state.x, y: 0.4, z: state.z }
+        : null
+      const wash = emitting && state.y < 3.2 ? { x: state.x, z: state.z } : null
+      thrusters.update(stepDt, emits, burst, camera.position, wash)
+      blob.position.x = state.x
+      blob.position.z = state.z
+      const shadow = Math.max(0, 0.42 - state.y / 28)
+      blobMaterial.opacity = shadow
+      blob.visible = shadow > 0.03
+      const shadowScale = 1 + Math.min(state.y, 10) * 0.12
+      blob.scale.setScalar(shadowScale)
+      updateCamera(camera, state, desired, look, lookTarget, stepDt, snapCamera)
+      snapCamera = false
+      const placed = courseHintLayout(
+        camera.position,
+        look,
+        undefined,
+        camera.fov,
+        camera.aspect,
+      )
+      const courseHint = placed
+        ? fitCourseHint(placed, { width: window.innerWidth, height: window.innerHeight }, readHudZones())
+        : null
+      hud.courseHint = courseHint
+      window.__roadsterHint = courseHint !== null
+      window.__roadsterUpY = camera.up.y
+      window.__roadsterSample = {
+        perf: now,
+        x: state.x,
+        y: state.y,
+        z: state.z,
+        vx: state.vx,
+        vy: state.vy,
+        vz: state.vz,
+        qx: state.qx,
+        qy: state.qy,
+        qz: state.qz,
+        qw: state.qw,
+        mode: state.mode,
+        event: state.event,
+        upX: camera.up.x,
+        upY: camera.up.y,
+        upZ: camera.up.z,
+        camX: camera.position.x,
+        camY: camera.position.y,
+        camZ: camera.position.z,
+        lookX: look.x,
+        lookY: look.y,
+        lookZ: look.z,
+        hint: courseHint !== null,
+        hintX: courseHint?.x ?? null,
+        hintY: courseHint?.y ?? null,
+        hintAngle: courseHint?.angle ?? null,
+        thrust: command.thrust,
+        reset: command.reset,
+      }
+      publishHud(hud, state, notice)
+      const sink = window.__roadsterFrameLog
+      if (sink && sink.length < 20000 && window.__roadsterSample) {
+        const dx = look.x - camera.position.x
+        const dz = look.z - camera.position.z
+        const view = {
+          cameraX: camera.position.x,
+          cameraY: camera.position.y,
+          cameraZ: camera.position.z,
+          lookX: look.x,
+          lookY: look.y,
+          lookZ: look.z,
+        }
+        const corners = carBodyNdc(view, state, camera.fov, camera.aspect)
+        const midX = corners.reduce((sum, corner) => sum + corner.x, 0) / corners.length
+        const midY = corners.reduce((sum, corner) => sum + corner.y, 0) / corners.length
+        sink.push({
+          ...window.__roadsterSample,
+          yaw: Math.atan2(dx, -dz) * 180 / Math.PI,
+          bodyInInset: carBodyInSafeInset(view, state, camera.fov, camera.aspect),
+          screenX: (midX * 0.5 + 0.5) * 100,
+          screenY: (-midY * 0.5 + 0.5) * 100,
+        })
+      }
+    })
     renderer.render(scene, camera)
     requestAnimationFrame(frame)
   }
@@ -234,45 +411,74 @@ function mountGame(
   }
 }
 
+function readHudZones(): { help: PxRect | null; title: PxRect | null; reset: PxRect | null } {
+  const read = (selector: string): PxRect | null => {
+    const element = document.querySelector(selector)
+    if (!(element instanceof HTMLElement)) return null
+    const rect = element.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return null
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+  }
+  return {
+    help: read('.hint'),
+    title: read('.title-block'),
+    reset: read('button.reset'),
+  }
+}
+
 function updateCamera(
-  camera: { position: Vector3; lookAt: (target: Vector3) => void },
+  camera: {
+    position: Vector3
+    up?: Vector3
+    fov: number
+    aspect: number
+    lookAt: (target: Vector3) => void
+  },
   state: VehicleState,
-  heading: Vector3,
   desired: Vector3,
   look: Vector3,
   lookTarget: Vector3,
-  scratch: Vector3,
   dt: number,
+  snap: boolean,
 ): void {
-  const planar = Math.hypot(state.vx, state.vz)
-  if (planar > 6) {
-    scratch.set(state.vx / planar, 0, state.vz / planar)
-    heading.lerp(scratch, 1 - Math.exp(-2.4 * dt)).normalize()
-  }
-  const distance = 12 + Math.min(state.y, 42) * 0.28
-  const side = 3.4
-  desired.set(
-    state.x - heading.x * distance - heading.z * side,
-    Math.max(1.8, state.y * 0.38 + 3.5 + Math.min(state.y, 36) * 0.12),
-    state.z - heading.z * distance + heading.x * side,
-  )
-  lookTarget.set(state.x, state.y + 1.15, state.z)
-  const blend = 1 - Math.exp(-3.4 * dt)
-  camera.position.lerp(desired, blend)
-  look.lerp(lookTarget, blend)
+  const frame = followCamera({
+    x: state.x,
+    y: state.y,
+    z: state.z,
+    qx: state.qx,
+    qy: state.qy,
+    qz: state.qz,
+    qw: state.qw,
+    cameraX: camera.position.x,
+    cameraY: camera.position.y,
+    cameraZ: camera.position.z,
+    dt,
+    snap,
+    fovDeg: camera.fov,
+    aspect: camera.aspect,
+  })
+  desired.set(frame.cameraX, frame.cameraY, frame.cameraZ)
+  lookTarget.set(frame.lookX, frame.lookY, frame.lookZ)
+  camera.position.copy(desired)
+  look.copy(lookTarget)
+  camera.up?.set(0, 1, 0)
   camera.lookAt(look)
 }
 
-function publishHud(hud: GameHudState, state: VehicleState): void {
+function publishHud(hud: GameHudState, state: VehicleState, notice: MomentNotice): void {
   const metersPerSecond = state.mode === 'air'
     ? Math.hypot(state.vx, state.vy, state.vz)
     : Math.abs(state.speed)
   const speedKmh = Math.round(metersPerSecond * 3.6)
   const altitude = Math.max(0, Math.round(state.y))
+  const climb = climbLabel(state.vy)
   if (hud.speedKmh !== speedKmh) hud.speedKmh = speedKmh
   if (hud.altitude !== altitude) hud.altitude = altitude
+  if (hud.climb !== climb) hud.climb = climb
   if (hud.mode !== state.mode) hud.mode = state.mode
   if (hud.stuntDone !== state.stuntDone) hud.stuntDone = state.stuntDone
+  if (hud.notice !== notice.text) hud.notice = notice.text
+  if (hud.noticeKind !== notice.kind) hud.noticeKind = notice.kind
 }
 
 function disposeScene(scene: { traverse: (callback: (object: object) => void) => void }): void {
